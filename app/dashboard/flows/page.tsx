@@ -53,51 +53,78 @@ const CANVAS_H = 4000
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
-// ─── Arrow helper ─────────────────────────────────────────────────────────────
+// ─── Arrow helpers ────────────────────────────────────────────────────────────
 
-function getNodeCenter(node: FlowNode) {
-  return { x: node.x + NODE_W / 2, y: node.y + NODE_H / 2 }
+// Find the point on the node border closest to the target
+function getNodeBorderPoint(node: FlowNode, targetX: number, targetY: number) {
+  const cx = node.x + NODE_W / 2
+  const cy = node.y + NODE_H / 2
+  const dx = targetX - cx
+  const dy = targetY - cy
+
+  if (dx === 0 && dy === 0) return { x: cx, y: cy }
+
+  // Intersect ray with rectangle border
+  const hw = NODE_W / 2
+  const hh = NODE_H / 2
+
+  const scaleX = dx !== 0 ? hw / Math.abs(dx) : Infinity
+  const scaleY = dy !== 0 ? hh / Math.abs(dy) : Infinity
+  const scale = Math.min(scaleX, scaleY)
+
+  return {
+    x: cx + dx * scale,
+    y: cy + dy * scale,
+  }
 }
 
-function getEdgePath(from: FlowNode, to: FlowNode) {
-  const f = getNodeCenter(from)
-  const t = getNodeCenter(to)
-  const dx = t.x - f.x
-  const dy = t.y - f.y
+function getEdgePoints(from: FlowNode, to: FlowNode) {
+  const fromCx = from.x + NODE_W / 2
+  const fromCy = from.y + NODE_H / 2
+  const toCx = to.x + NODE_W / 2
+  const toCy = to.y + NODE_H / 2
 
-  // Exit bottom if target is mostly below, else exit right/left
-  let x1 = f.x, y1 = f.y + NODE_H / 2
-  let x2 = t.x, y2 = t.y - NODE_H / 2
+  const start = getNodeBorderPoint(from, toCx, toCy)
+  const end = getNodeBorderPoint(to, fromCx, fromCy)
 
-  if (Math.abs(dx) > Math.abs(dy)) {
-    if (dx > 0) {
-      x1 = f.x + NODE_W / 2; y1 = f.y
-      x2 = t.x - NODE_W / 2; y2 = t.y
-    } else {
-      x1 = f.x - NODE_W / 2; y1 = f.y
-      x2 = t.x + NODE_W / 2; y2 = t.y
-    }
+  // Control points for bezier — offset perpendicular to make curve
+  const mx = (start.x + end.x) / 2
+  const my = (start.y + end.y) / 2
+
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const len = Math.sqrt(dx * dx + dy * dy)
+
+  // Curve amount — more curve for shorter distances
+  const curve = Math.min(60, len * 0.3)
+
+  // Perpendicular offset for control point
+  const px = -dy / len * curve
+  const py = dx / len * curve
+
+  const cp1x = start.x + dx * 0.25 + px
+  const cp1y = start.y + dy * 0.25 + py
+  const cp2x = start.x + dx * 0.75 + px
+  const cp2y = start.y + dy * 0.75 + py
+
+  // Midpoint on curve (approx t=0.5 on cubic bezier)
+  const midX = 0.125 * start.x + 0.375 * cp1x + 0.375 * cp2x + 0.125 * end.x
+  const midY = 0.125 * start.y + 0.375 * cp1y + 0.375 * cp2y + 0.125 * end.y
+
+  // Arrow direction at end point — tangent of bezier at t=1
+  const tangentX = end.x - cp2x
+  const tangentY = end.y - cp2y
+  const tLen = Math.sqrt(tangentX * tangentX + tangentY * tangentY)
+  const angle = Math.atan2(tangentY / tLen, tangentX / tLen) * 180 / Math.PI
+
+  return {
+    path: `M ${start.x} ${start.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${end.x} ${end.y}`,
+    midX,
+    midY,
+    endX: end.x,
+    endY: end.y,
+    angle,
   }
-
-  const mx = (x1 + x2) / 2
-  const my = (y1 + y2) / 2
-
-  return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`
-}
-
-function getArrowHead(from: FlowNode, to: FlowNode) {
-  const t = getNodeCenter(to)
-  const dx = t.x - getNodeCenter(from).x
-  const dy = t.y - getNodeCenter(from).y
-
-  let tx = t.x, ty = t.y - NODE_H / 2
-
-  if (Math.abs(dx) > Math.abs(dy)) {
-    if (dx > 0) { tx = to.x - NODE_W / 2; ty = t.y }
-    else         { tx = to.x + NODE_W / 2; ty = t.y }
-  }
-
-  return { x: tx, y: ty }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -120,7 +147,7 @@ export default function FlowsPage() {
   const [unsaved, setUnsaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [dragging, setDragging] = useState<{ id: string; ox: number; oy: number } | null>(null)
-  const [dragThreshold, setDragThreshold] = useState(false)
+  const [didDrag, setDidDrag] = useState(false)
   const dragStart = useRef<{ x: number; y: number } | null>(null)
   const canvasRef = useRef<SVGSVGElement>(null)
   const router = useRouter()
@@ -148,14 +175,27 @@ export default function FlowsPage() {
     setSavedFlows(data || [])
   }
 
+  // ── SVG coordinate helper ─────────────────────────────────────────────────
+
+  const svgCoords = (clientX: number, clientY: number) => {
+    const svg = canvasRef.current
+    if (!svg) return { x: 0, y: 0 }
+    const rect = svg.getBoundingClientRect()
+    const vb = svg.viewBox.baseVal
+    return {
+      x: (clientX - rect.left) * (vb.width / rect.width),
+      y: (clientY - rect.top) * (vb.height / rect.height),
+    }
+  }
+
   // ── Node operations ───────────────────────────────────────────────────────
 
   const addNode = (type: NodeType) => {
     const n: FlowNode = {
       id: uid(),
       type,
-      x: 200 + Math.random() * 300,
-      y: 200 + Math.random() * 200,
+      x: 300 + Math.random() * 400,
+      y: 200 + Math.random() * 300,
       label: NODE_STYLES[type].label,
     }
     setNodes(prev => [...prev, n])
@@ -170,13 +210,10 @@ export default function FlowsPage() {
     setUnsaved(true)
   }
 
-  const startConnect = () => {
-    if (!selected) return
-    setConnecting(selected)
-  }
-
   const handleNodeClick = (e: React.MouseEvent, nodeId: string) => {
     e.stopPropagation()
+    if (didDrag) return // don't select if we just dragged
+
     if (connecting) {
       if (connecting !== nodeId) {
         const exists = edges.find(e => e.from === connecting && e.to === nodeId)
@@ -200,46 +237,35 @@ export default function FlowsPage() {
 
   const onMouseDown = (e: React.MouseEvent, nodeId: string) => {
     e.stopPropagation()
-    const svg = canvasRef.current
-    if (!svg) return
-    const rect = svg.getBoundingClientRect()
-    const vb = svg.viewBox.baseVal
-    const scaleX = vb.width / rect.width
-    const scaleY = vb.height / rect.height
+    const { x, y } = svgCoords(e.clientX, e.clientY)
     const node = nodes.find(n => n.id === nodeId)
     if (!node) return
     dragStart.current = { x: e.clientX, y: e.clientY }
-    setDragThreshold(false)
-    setDragging({
-      id: nodeId,
-      ox: e.clientX * scaleX - node.x,
-      oy: e.clientY * scaleY - node.y,
-    })
+    setDidDrag(false)
+    setDragging({ id: nodeId, ox: x - node.x, oy: y - node.y })
   }
 
   const onMouseMove = useCallback((e: MouseEvent) => {
     if (!dragging) return
-    const svg = canvasRef.current
-    if (!svg) return
     if (dragStart.current) {
       const dx = Math.abs(e.clientX - dragStart.current.x)
       const dy = Math.abs(e.clientY - dragStart.current.y)
-      if (!dragThreshold && (dx > 4 || dy > 4)) setDragThreshold(true)
+      if (dx > 4 || dy > 4) setDidDrag(true)
     }
-    const rect = svg.getBoundingClientRect()
-    const vb = svg.viewBox.baseVal
-    const scaleX = vb.width / rect.width
-    const scaleY = vb.height / rect.height
-    const nx = e.clientX * scaleX - dragging.ox
-    const ny = e.clientY * scaleY - dragging.oy
-    setNodes(prev => prev.map(n => n.id === dragging.id ? { ...n, x: Math.max(0, nx), y: Math.max(0, ny) } : n))
-  }, [dragging, dragThreshold])
+    const { x, y } = svgCoords(e.clientX, e.clientY)
+    setNodes(prev => prev.map(n =>
+      n.id === dragging.id
+        ? { ...n, x: Math.max(0, x - dragging.ox), y: Math.max(0, y - dragging.oy) }
+        : n
+    ))
+  }, [dragging])
 
   const onMouseUp = useCallback(() => {
-    if (dragging && dragThreshold) setUnsaved(true)
+    if (dragging && didDrag) setUnsaved(true)
     setDragging(null)
     dragStart.current = null
-  }, [dragging, dragThreshold])
+    setTimeout(() => setDidDrag(false), 50)
+  }, [dragging, didDrag])
 
   useEffect(() => {
     window.addEventListener('mousemove', onMouseMove)
@@ -326,8 +352,6 @@ export default function FlowsPage() {
     setCurrentFlowName('Nyt flow'); setUnsaved(false); setSelected(null)
   }
 
-  // ── Selected node ─────────────────────────────────────────────────────────
-
   const selectedNode = nodes.find(n => n.id === selected)
 
   if (loading) return (
@@ -365,7 +389,6 @@ export default function FlowsPage() {
 
         {/* LEFT TOOLBAR */}
         <div className="w-52 bg-white border-r border-gray-100 p-4 flex flex-col gap-4 flex-shrink-0 overflow-y-auto">
-
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Tilføj element</p>
             <div className="flex flex-col gap-1.5">
@@ -397,11 +420,11 @@ export default function FlowsPage() {
                   color: NODE_STYLES[selectedNode.type].text,
                 }}
               >
-                {NODE_STYLES[selectedNode.type].label}
+                {selectedNode.label}
               </div>
               <div className="flex flex-col gap-1.5">
                 <button
-                  onClick={startConnect}
+                  onClick={() => setConnecting(selected)}
                   className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${connecting === selected ? 'bg-emerald-500 text-white border-emerald-500' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
                 >
                   {connecting === selected ? '→ Klik på mål...' : '→ Forbind til...'}
@@ -428,7 +451,7 @@ export default function FlowsPage() {
         </div>
 
         {/* CANVAS */}
-        <div className="flex-1 overflow-auto bg-gray-100 relative">
+        <div className="flex-1 overflow-auto bg-gray-100">
           <svg
             ref={canvasRef}
             width={CANVAS_W}
@@ -438,13 +461,13 @@ export default function FlowsPage() {
             className="block"
             style={{ cursor: connecting ? 'crosshair' : 'default' }}
           >
-            {/* Grid */}
             <defs>
               <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
                 <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e5e7eb" strokeWidth="0.5" />
               </pattern>
-              <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill="#6b7280" />
+              {/* Arrowhead marker — sits at end of path */}
+              <marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto-start-reverse">
+                <path d="M 0 0 L 8 4 L 0 8 Z" fill="#6b7280" />
               </marker>
             </defs>
             <rect width={CANVAS_W} height={CANVAS_H} fill="url(#grid)" />
@@ -454,17 +477,26 @@ export default function FlowsPage() {
               const fromNode = nodes.find(n => n.id === edge.from)
               const toNode = nodes.find(n => n.id === edge.to)
               if (!fromNode || !toNode) return null
-              const path = getEdgePath(fromNode, toNode)
-              const arrow = getArrowHead(fromNode, toNode)
-              const mid = {
-                x: (getNodeCenter(fromNode).x + getNodeCenter(toNode).x) / 2,
-                y: (getNodeCenter(fromNode).y + getNodeCenter(toNode).y) / 2,
-              }
+              const pts = getEdgePoints(fromNode, toNode)
               return (
                 <g key={edge.id}>
-                  <path d={path} fill="none" stroke="#6b7280" strokeWidth="1.5" markerEnd="url(#arrowhead)" />
+                  <path
+                    d={pts.path}
+                    fill="none"
+                    stroke="#9ca3af"
+                    strokeWidth="1.5"
+                    markerEnd="url(#arrow)"
+                  />
                   {edge.label && (
-                    <text x={mid.x} y={mid.y - 6} textAnchor="middle" fontSize="11" fill="#6b7280">{edge.label}</text>
+                    <text
+                      x={pts.midX}
+                      y={pts.midY - 6}
+                      textAnchor="middle"
+                      fontSize="11"
+                      fill="#6b7280"
+                    >
+                      {edge.label}
+                    </text>
                   )}
                 </g>
               )
@@ -491,7 +523,7 @@ export default function FlowsPage() {
                     fill={style.bg}
                     stroke={isSelected || isConnecting ? '#0ea5e9' : style.border}
                     strokeWidth={isSelected || isConnecting ? 2.5 : 1.5}
-                    filter={isSelected ? 'drop-shadow(0 2px 6px rgba(0,0,0,0.15))' : undefined}
+                    filter={isSelected ? 'drop-shadow(0 2px 8px rgba(0,0,0,0.12))' : undefined}
                   />
                   {editLabel?.id === node.id ? (
                     <foreignObject x="4" y="4" width={NODE_W - 8} height={NODE_H - 8}>
@@ -523,14 +555,13 @@ export default function FlowsPage() {
                       {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
                     </text>
                   )}
-                  <text x={NODE_W - 6} y="10" textAnchor="end" fontSize="8" fill={style.border} opacity="0.6">
+                  <text x={NODE_W - 6} y="10" textAnchor="end" fontSize="8" fill={style.border} opacity="0.5">
                     {style.label.toUpperCase()}
                   </text>
                 </g>
               )
             })}
 
-            {/* Empty state */}
             {nodes.length === 0 && (
               <text x={CANVAS_W / 2} y={300} textAnchor="middle" fontSize="14" fill="#9ca3af">
                 Tilføj elementer fra venstre panel for at bygge dit flow
