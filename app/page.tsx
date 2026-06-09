@@ -10,12 +10,12 @@ export default function Home() {
         <div className="flex items-center gap-6">
           <a href="#funktioner" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">Funktioner</a>
           <a href="#priser" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">Priser</a>
-          <button className="text-sm px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+          <a href="/login" className="text-sm px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
             Log ind
-          </button>
-          <button className="text-sm px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors">
+          </a>
+          <a href="/login" className="text-sm px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors">
             Prøv gratis
-          </button>
+          </a>
         </div>
       </nav>
 
@@ -34,9 +34,9 @@ export default function Home() {
           fødevareproducenter på engros-niveau. Ingen kurser. Ingen papir. Altid audit-ready.
         </p>
         <div className="flex items-center justify-center gap-4">
-          <button className="px-6 py-3 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
+          <a href="/login" className="px-6 py-3 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
             Start 30 dages gratis prøve
-          </button>
+          </a>
           <button className="px-6 py-3 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">
             Se en demo →
           </button>
@@ -178,11 +178,11 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
-              <button className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors ${tier.featured
+              <a href="/login" className={`block text-center w-full py-2.5 rounded-lg text-sm font-medium transition-colors ${tier.featured
                 ? "bg-slate-800 text-white hover:bg-slate-700"
                 : "border border-gray-200 text-gray-700 hover:bg-gray-50"}`}>
                 Kom i gang
-              </button>
+              </a>
             </div>
           ))}
         </div>
@@ -194,9 +194,9 @@ export default function Home() {
           Klar til dit første audit-ready QMS?
         </h2>
         <p className="text-gray-500 mb-8">30 dages gratis prøve. Opsætning på under 2 timer. Ingen kreditkort.</p>
-        <button className="px-8 py-3 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
+        <a href="/login" className="px-8 py-3 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
           Kom i gang gratis
-        </button>
+        </a>
       </section>
 
       {/* FOOTER */}
