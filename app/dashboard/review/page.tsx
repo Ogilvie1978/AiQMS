@@ -190,7 +190,7 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
+          max_tokens: 2000,
           messages: [{ role: 'user', content: prompt }],
         }),
       })
