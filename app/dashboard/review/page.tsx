@@ -97,7 +97,6 @@ export default function ManagementReviewPage() {
       .order('dato', { ascending: false })
     setReviews(data || [])
 
-    // Hent QMS-data til SWOT-kontekst
     const [afv, docs, flowsData, haccp] = await Promise.all([
       supabase.from('afvigelser').select('id, alvorlighed, status').eq('user_id', user.id),
       supabase.from('dokumenter').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
@@ -168,8 +167,7 @@ export default function ManagementReviewPage() {
     setSwotLoading(true)
     setSwot(null)
 
-    const kontekst = `
-Du er en erfaren QMS-konsulent specialiseret i fødevaresikkerhed (IFS, BRC, FSSC 22000, ISO 22000).
+    const prompt = `Du er en erfaren QMS-konsulent specialiseret i fødevaresikkerhed (IFS, BRC, FSSC 22000, ISO 22000).
 
 Her er data fra virksomhedens QMS-system:
 - Åbne afvigelser: ${qmsData?.aabneAfvigelser ?? 0}
@@ -184,22 +182,16 @@ Vær konkret, handlingsorienteret og brug dansk sprog.
 Hvert punkt skal være 1-2 sætninger.
 
 Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
-{
-  "strengths": ["punkt 1", "punkt 2", "punkt 3"],
-  "weaknesses": ["punkt 1", "punkt 2", "punkt 3"],
-  "opportunities": ["punkt 1", "punkt 2", "punkt 3"],
-  "threats": ["punkt 1", "punkt 2", "punkt 3"]
-}
-`
+{"strengths":["punkt 1","punkt 2","punkt 3"],"weaknesses":["punkt 1","punkt 2","punkt 3"],"opportunities":["punkt 1","punkt 2","punkt 3"],"threats":["punkt 1","punkt 2","punkt 3"]}`
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 1000,
-          messages: [{ role: 'user', content: kontekst }],
+          messages: [{ role: 'user', content: prompt }],
         }),
       })
 
@@ -324,7 +316,6 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
 
             <div className="px-6 py-5">
 
-              {/* QMS Data overblik */}
               {qmsData && (
                 <div className="bg-slate-50 rounded-xl p-4 mb-5">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Data der analyseres</p>
@@ -345,13 +336,12 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
                 </div>
               )}
 
-              {/* Ekstra kontekst */}
               <div className="mb-5">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Tilføj kontekst (valgfrit)</label>
                 <textarea
                   value={swotContext}
                   onChange={e => setSwotContext(e.target.value)}
-                  placeholder="F.eks: Vi har netop skiftet leverandør af emballage. Vi planlægger en ny produktlinje til næste kvartal. Vi har haft en ekstern audit i denne periode..."
+                  placeholder="F.eks: Vi har netop skiftet leverandør af emballage. Vi planlægger en ny produktlinje til næste kvartal..."
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
                 />
@@ -365,7 +355,6 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
                 {swotLoading ? '🤖 Analyserer...' : '🤖 Generer SWOT-analyse'}
               </button>
 
-              {/* SWOT resultat */}
               {swot && (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
@@ -378,7 +367,6 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
                       ))}
                     </ul>
                   </div>
-
                   <div className="bg-red-50 border border-red-100 rounded-xl p-4">
                     <h3 className="text-sm font-semibold text-red-700 mb-3">⚠️ Svagheder</h3>
                     <ul className="space-y-2">
@@ -389,7 +377,6 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
                       ))}
                     </ul>
                   </div>
-
                   <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
                     <h3 className="text-sm font-semibold text-blue-700 mb-3">🚀 Muligheder</h3>
                     <ul className="space-y-2">
@@ -400,7 +387,6 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
                       ))}
                     </ul>
                   </div>
-
                   <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
                     <h3 className="text-sm font-semibold text-amber-700 mb-3">🛡️ Trusler</h3>
                     <ul className="space-y-2">
@@ -429,7 +415,6 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
               <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
 
-            {/* TABS */}
             <div className="flex border-b border-gray-100 px-6">
               <button onClick={() => setActiveTab('input')}
                 className={`text-xs py-3 px-4 font-medium border-b-2 transition-colors ${activeTab === 'input' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
@@ -442,7 +427,6 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
             </div>
 
             <div className="px-6 py-5 space-y-4">
-
               {activeTab === 'input' && (
                 <>
                   <div>
@@ -486,7 +470,7 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
                     { key: 'tidligere_handlinger', label: 'Opfølgning på tidligere handlinger', placeholder: 'Status på handlinger fra forrige review...' },
                     { key: 'interne_audits', label: 'Interne audits og inspektioner', placeholder: 'Resultater fra interne audits...' },
                     { key: 'kunde_feedback', label: 'Kundeklager og feedback', placeholder: 'Oversigt over kundeklager og feedback...' },
-                    { key: 'procesperformance', label: 'Procesperformance og produktoverensstemmelse', placeholder: 'Nøgletal og KPI\'er...' },
+                    { key: 'procesperformance', label: 'Procesperformance og produktoverensstemmelse', placeholder: "Nøgletal og KPI'er..." },
                     { key: 'afvigelser_status', label: 'Status på afvigelser og CAPA', placeholder: 'Oversigt over afvigelser og korrigerende handlinger...' },
                     { key: 'ressourcer', label: 'Ressourcer og kompetencer', placeholder: 'Behov for ressourcer, uddannelse...' },
                     { key: 'risici', label: 'Risikovurdering', placeholder: 'Identificerede risici og muligheder...' },
@@ -523,7 +507,6 @@ Svar KUN med et JSON-objekt i dette format (ingen markdown, ingen forklaring):
                       />
                     </div>
                   ))}
-
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Dato for næste review</label>
                     <input type="date" value={form.naeste_review} onChange={e => setForm(f => ({ ...f, naeste_review: e.target.value }))}
