@@ -4,8 +4,6 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 type NodeType = 'start' | 'slut' | 'proces' | 'beslutning' | 'kontrol' | 'ccp'
 
 type FlowNode = {
@@ -35,8 +33,6 @@ type SavedFlow = {
   updated_at: string
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 const NODE_STYLES: Record<NodeType, { bg: string; border: string; text: string; label: string }> = {
   start:      { bg: '#dcfce7', border: '#16a34a', text: '#15803d', label: 'Start' },
   slut:       { bg: '#fee2e2', border: '#dc2626', text: '#b91c1c', label: 'Slut' },
@@ -50,84 +46,89 @@ const NODE_W = 160
 const NODE_H = 56
 const CANVAS_W = 4000
 const CANVAS_H = 4000
+const ARROW_SIZE = 8
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
-// ─── Arrow helpers ────────────────────────────────────────────────────────────
-
-// Find the point on the node border closest to the target
-function getNodeBorderPoint(node: FlowNode, targetX: number, targetY: number) {
+// Get the point where a line from (fromX,fromY) hits the border of the node
+function getBorderPoint(node: FlowNode, fromX: number, fromY: number) {
   const cx = node.x + NODE_W / 2
   const cy = node.y + NODE_H / 2
-  const dx = targetX - cx
-  const dy = targetY - cy
-
+  const dx = fromX - cx
+  const dy = fromY - cy
   if (dx === 0 && dy === 0) return { x: cx, y: cy }
-
-  // Intersect ray with rectangle border
-  const hw = NODE_W / 2
-  const hh = NODE_H / 2
-
-  const scaleX = dx !== 0 ? hw / Math.abs(dx) : Infinity
-  const scaleY = dy !== 0 ? hh / Math.abs(dy) : Infinity
-  const scale = Math.min(scaleX, scaleY)
-
-  return {
-    x: cx + dx * scale,
-    y: cy + dy * scale,
-  }
+  const hw = NODE_W / 2 + 2
+  const hh = NODE_H / 2 + 2
+  const sx = dx !== 0 ? hw / Math.abs(dx) : Infinity
+  const sy = dy !== 0 ? hh / Math.abs(dy) : Infinity
+  const s = Math.min(sx, sy)
+  return { x: cx + dx * s, y: cy + dy * s }
 }
 
-function getEdgePoints(from: FlowNode, to: FlowNode) {
-  const fromCx = from.x + NODE_W / 2
-  const fromCy = from.y + NODE_H / 2
-  const toCx = to.x + NODE_W / 2
-  const toCy = to.y + NODE_H / 2
+// Draw arrowhead polygon at point (x,y) pointing in direction (angle radians)
+function arrowHead(x: number, y: number, angle: number) {
+  const a = ARROW_SIZE
+  const b = ARROW_SIZE * 0.5
+  // tip at (x,y), two base points perpendicular behind
+  const tipX = x
+  const tipY = y
+  const baseX = x - Math.cos(angle) * a
+  const baseY = y - Math.sin(angle) * a
+  const p1x = baseX + Math.cos(angle + Math.PI / 2) * b
+  const p1y = baseY + Math.sin(angle + Math.PI / 2) * b
+  const p2x = baseX + Math.cos(angle - Math.PI / 2) * b
+  const p2y = baseY + Math.sin(angle - Math.PI / 2) * b
+  return `${tipX},${tipY} ${p1x},${p1y} ${p2x},${p2y}`
+}
 
-  const start = getNodeBorderPoint(from, toCx, toCy)
-  const end = getNodeBorderPoint(to, fromCx, fromCy)
+function renderEdge(fromNode: FlowNode, toNode: FlowNode, edgeId: string, label?: string) {
+  const fromCx = fromNode.x + NODE_W / 2
+  const fromCy = fromNode.y + NODE_H / 2
+  const toCx = toNode.x + NODE_W / 2
+  const toCy = toNode.y + NODE_H / 2
 
-  // Control points for bezier — offset perpendicular to make curve
-  const mx = (start.x + end.x) / 2
-  const my = (start.y + end.y) / 2
+  // Start and end on node borders
+  const start = getBorderPoint(fromNode, toCx, toCy)
+  const end = getBorderPoint(toNode, fromCx, fromCy)
 
+  // Pull end back slightly so arrowhead tip sits on border
   const dx = end.x - start.x
   const dy = end.y - start.y
   const len = Math.sqrt(dx * dx + dy * dy)
+  if (len < 1) return null
 
-  // Curve amount — more curve for shorter distances
-  const curve = Math.min(60, len * 0.3)
+  const ux = dx / len
+  const uy = dy / len
 
-  // Perpendicular offset for control point
-  const px = -dy / len * curve
-  const py = dx / len * curve
+  // Line ends just before the arrowhead tip
+  const lineEndX = end.x - ux * ARROW_SIZE
+  const lineEndY = end.y - uy * ARROW_SIZE
 
-  const cp1x = start.x + dx * 0.25 + px
-  const cp1y = start.y + dy * 0.25 + py
-  const cp2x = start.x + dx * 0.75 + px
-  const cp2y = start.y + dy * 0.75 + py
+  // Midpoint for label
+  const midX = (start.x + end.x) / 2
+  const midY = (start.y + end.y) / 2
 
-  // Midpoint on curve (approx t=0.5 on cubic bezier)
-  const midX = 0.125 * start.x + 0.375 * cp1x + 0.375 * cp2x + 0.125 * end.x
-  const midY = 0.125 * start.y + 0.375 * cp1y + 0.375 * cp2y + 0.125 * end.y
+  // Angle for arrowhead
+  const angle = Math.atan2(uy, ux)
+  const arrowPts = arrowHead(end.x, end.y, angle)
 
-  // Arrow direction at end point — tangent of bezier at t=1
-  const tangentX = end.x - cp2x
-  const tangentY = end.y - cp2y
-  const tLen = Math.sqrt(tangentX * tangentX + tangentY * tangentY)
-  const angle = Math.atan2(tangentY / tLen, tangentX / tLen) * 180 / Math.PI
-
-  return {
-    path: `M ${start.x} ${start.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${end.x} ${end.y}`,
-    midX,
-    midY,
-    endX: end.x,
-    endY: end.y,
-    angle,
-  }
+  return (
+    <g key={edgeId}>
+      <line
+        x1={start.x} y1={start.y}
+        x2={lineEndX} y2={lineEndY}
+        stroke="#6b7280"
+        strokeWidth="1.5"
+      />
+      <polygon points={arrowPts} fill="#6b7280" />
+      {label && (
+        <text x={midX} y={midY - 6} textAnchor="middle" fontSize="11" fill="#6b7280">
+          {label}
+        </text>
+      )}
+    </g>
+  )
 }
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FlowsPage() {
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null)
@@ -153,8 +154,6 @@ export default function FlowsPage() {
   const router = useRouter()
   const supabase = createClient()
 
-  // ── Init ──────────────────────────────────────────────────────────────────
-
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -175,8 +174,6 @@ export default function FlowsPage() {
     setSavedFlows(data || [])
   }
 
-  // ── SVG coordinate helper ─────────────────────────────────────────────────
-
   const svgCoords = (clientX: number, clientY: number) => {
     const svg = canvasRef.current
     if (!svg) return { x: 0, y: 0 }
@@ -188,12 +185,9 @@ export default function FlowsPage() {
     }
   }
 
-  // ── Node operations ───────────────────────────────────────────────────────
-
   const addNode = (type: NodeType) => {
     const n: FlowNode = {
-      id: uid(),
-      type,
+      id: uid(), type,
       x: 300 + Math.random() * 400,
       y: 200 + Math.random() * 300,
       label: NODE_STYLES[type].label,
@@ -212,8 +206,7 @@ export default function FlowsPage() {
 
   const handleNodeClick = (e: React.MouseEvent, nodeId: string) => {
     e.stopPropagation()
-    if (didDrag) return // don't select if we just dragged
-
+    if (didDrag) return
     if (connecting) {
       if (connecting !== nodeId) {
         const exists = edges.find(e => e.from === connecting && e.to === nodeId)
@@ -232,8 +225,6 @@ export default function FlowsPage() {
     if (connecting) { setConnecting(null); return }
     setSelected(null)
   }
-
-  // ── Drag ──────────────────────────────────────────────────────────────────
 
   const onMouseDown = (e: React.MouseEvent, nodeId: string) => {
     e.stopPropagation()
@@ -276,8 +267,6 @@ export default function FlowsPage() {
     }
   }, [onMouseMove, onMouseUp])
 
-  // ── Label edit ────────────────────────────────────────────────────────────
-
   const startEditLabel = (e: React.MouseEvent, node: FlowNode) => {
     e.stopPropagation()
     setEditLabel({ id: node.id, value: node.label })
@@ -290,8 +279,6 @@ export default function FlowsPage() {
     setUnsaved(true)
   }
 
-  // ── Save / Load ───────────────────────────────────────────────────────────
-
   const openSaveModal = () => {
     setSaveName(currentFlowName)
     setShowSaveModal(true)
@@ -301,28 +288,20 @@ export default function FlowsPage() {
     if (!user || !saveName.trim()) return
     setSaving(true)
     const flowData: FlowData = { nodes, edges }
-
     if (currentFlowId) {
       await supabase.from('flows').update({
-        name: saveName.trim(),
-        data: flowData,
+        name: saveName.trim(), data: flowData,
         updated_at: new Date().toISOString(),
       }).eq('id', currentFlowId)
     } else {
       const { data } = await supabase.from('flows').insert({
-        user_id: user.id,
-        name: saveName.trim(),
-        data: flowData,
+        user_id: user.id, name: saveName.trim(), data: flowData,
       }).select().single()
       if (data) setCurrentFlowId(data.id)
     }
-
     setCurrentFlowName(saveName.trim())
     await loadFlows(user.id)
-    setSaving(false)
-    setSaved(true)
-    setUnsaved(false)
-    setShowSaveModal(false)
+    setSaving(false); setSaved(true); setUnsaved(false); setShowSaveModal(false)
     setTimeout(() => setSaved(false), 3000)
   }
 
@@ -331,9 +310,7 @@ export default function FlowsPage() {
     setEdges(flow.data?.edges || [])
     setCurrentFlowId(flow.id)
     setCurrentFlowName(flow.name)
-    setUnsaved(false)
-    setShowFlowModal(false)
-    setSelected(null)
+    setUnsaved(false); setShowFlowModal(false); setSelected(null)
   }
 
   const deleteFlow = async (id: string, e: React.MouseEvent) => {
@@ -373,36 +350,23 @@ export default function FlowsPage() {
           {saved && <span className="text-xs text-emerald-500">✓ Gemt</span>}
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={newFlow} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
-            + Nyt flow
-          </button>
-          <button onClick={() => setShowFlowModal(true)} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
-            📂 Mine flows ({savedFlows.length})
-          </button>
-          <button onClick={openSaveModal} className="text-xs px-4 py-1.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700">
-            Gem flow
-          </button>
+          <button onClick={newFlow} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">+ Nyt flow</button>
+          <button onClick={() => setShowFlowModal(true)} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">📂 Mine flows ({savedFlows.length})</button>
+          <button onClick={openSaveModal} className="text-xs px-4 py-1.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700">Gem flow</button>
         </div>
       </nav>
 
       <div className="flex flex-1 overflow-hidden">
 
-        {/* LEFT TOOLBAR */}
+        {/* TOOLBAR */}
         <div className="w-52 bg-white border-r border-gray-100 p-4 flex flex-col gap-4 flex-shrink-0 overflow-y-auto">
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Tilføj element</p>
             <div className="flex flex-col gap-1.5">
               {(Object.keys(NODE_STYLES) as NodeType[]).map(type => (
-                <button
-                  key={type}
-                  onClick={() => addNode(type)}
-                  className="text-xs px-3 py-2 rounded-lg border text-left font-medium transition-colors hover:opacity-80"
-                  style={{
-                    backgroundColor: NODE_STYLES[type].bg,
-                    borderColor: NODE_STYLES[type].border,
-                    color: NODE_STYLES[type].text,
-                  }}
-                >
+                <button key={type} onClick={() => addNode(type)}
+                  className="text-xs px-3 py-2 rounded-lg border text-left font-medium hover:opacity-80 transition-opacity"
+                  style={{ backgroundColor: NODE_STYLES[type].bg, borderColor: NODE_STYLES[type].border, color: NODE_STYLES[type].text }}>
                   {NODE_STYLES[type].label}
                 </button>
               ))}
@@ -411,28 +375,18 @@ export default function FlowsPage() {
 
           {selectedNode && (
             <div className="border-t border-gray-100 pt-4">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Valgt element</p>
-              <div
-                className="text-xs px-3 py-2 rounded-lg border font-medium mb-3"
-                style={{
-                  backgroundColor: NODE_STYLES[selectedNode.type].bg,
-                  borderColor: NODE_STYLES[selectedNode.type].border,
-                  color: NODE_STYLES[selectedNode.type].text,
-                }}
-              >
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Valgt</p>
+              <div className="text-xs px-3 py-2 rounded-lg border font-medium mb-3"
+                style={{ backgroundColor: NODE_STYLES[selectedNode.type].bg, borderColor: NODE_STYLES[selectedNode.type].border, color: NODE_STYLES[selectedNode.type].text }}>
                 {selectedNode.label}
               </div>
               <div className="flex flex-col gap-1.5">
-                <button
-                  onClick={() => setConnecting(selected)}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${connecting === selected ? 'bg-emerald-500 text-white border-emerald-500' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-                >
+                <button onClick={() => setConnecting(selected)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${connecting === selected ? 'bg-emerald-500 text-white border-emerald-500' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
                   {connecting === selected ? '→ Klik på mål...' : '→ Forbind til...'}
                 </button>
-                <button
-                  onClick={deleteSelected}
-                  className="text-xs px-3 py-1.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50"
-                >
+                <button onClick={deleteSelected}
+                  className="text-xs px-3 py-1.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50">
                   🗑 Slet element
                 </button>
               </div>
@@ -454,8 +408,7 @@ export default function FlowsPage() {
         <div className="flex-1 overflow-auto bg-gray-100">
           <svg
             ref={canvasRef}
-            width={CANVAS_W}
-            height={CANVAS_H}
+            width={CANVAS_W} height={CANVAS_H}
             viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
             onClick={handleCanvasClick}
             className="block"
@@ -465,41 +418,15 @@ export default function FlowsPage() {
               <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
                 <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e5e7eb" strokeWidth="0.5" />
               </pattern>
-              {/* Arrowhead marker — sits at end of path */}
-              <marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto-start-reverse">
-                <path d="M 0 0 L 8 4 L 0 8 Z" fill="#6b7280" />
-              </marker>
             </defs>
             <rect width={CANVAS_W} height={CANVAS_H} fill="url(#grid)" />
 
-            {/* Edges */}
+            {/* Edges — rendered below nodes */}
             {edges.map(edge => {
               const fromNode = nodes.find(n => n.id === edge.from)
               const toNode = nodes.find(n => n.id === edge.to)
               if (!fromNode || !toNode) return null
-              const pts = getEdgePoints(fromNode, toNode)
-              return (
-                <g key={edge.id}>
-                  <path
-                    d={pts.path}
-                    fill="none"
-                    stroke="#9ca3af"
-                    strokeWidth="1.5"
-                    markerEnd="url(#arrow)"
-                  />
-                  {edge.label && (
-                    <text
-                      x={pts.midX}
-                      y={pts.midY - 6}
-                      textAnchor="middle"
-                      fontSize="11"
-                      fill="#6b7280"
-                    >
-                      {edge.label}
-                    </text>
-                  )}
-                </g>
-              )
+              return renderEdge(fromNode, toNode, edge.id, edge.label)
             })}
 
             {/* Nodes */}
@@ -508,18 +435,14 @@ export default function FlowsPage() {
               const isSelected = selected === node.id
               const isConnecting = connecting === node.id
               return (
-                <g
-                  key={node.id}
+                <g key={node.id}
                   transform={`translate(${node.x}, ${node.y})`}
                   onClick={e => handleNodeClick(e, node.id)}
                   onMouseDown={e => onMouseDown(e, node.id)}
                   onDoubleClick={e => startEditLabel(e, node)}
                   style={{ cursor: dragging?.id === node.id ? 'grabbing' : 'grab' }}
                 >
-                  <rect
-                    width={NODE_W}
-                    height={NODE_H}
-                    rx="8"
+                  <rect width={NODE_W} height={NODE_H} rx="8"
                     fill={style.bg}
                     stroke={isSelected || isConnecting ? '#0ea5e9' : style.border}
                     strokeWidth={isSelected || isConnecting ? 2.5 : 1.5}
@@ -535,23 +458,11 @@ export default function FlowsPage() {
                         onChange={e => setEditLabel(prev => prev ? { ...prev, value: e.target.value } : null)}
                         onBlur={commitLabel}
                         onKeyDown={e => { if (e.key === 'Enter') commitLabel() }}
-                        style={{
-                          width: '100%', height: '100%', border: 'none', background: 'transparent',
-                          fontSize: '12px', fontWeight: 600, color: style.text,
-                          textAlign: 'center', outline: 'none',
-                        }}
+                        style={{ width: '100%', height: '100%', border: 'none', background: 'transparent', fontSize: '12px', fontWeight: 600, color: style.text, textAlign: 'center', outline: 'none' }}
                       />
                     </foreignObject>
                   ) : (
-                    <text
-                      x={NODE_W / 2}
-                      y={NODE_H / 2 + 1}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      fontSize="12"
-                      fontWeight="600"
-                      fill={style.text}
-                    >
+                    <text x={NODE_W / 2} y={NODE_H / 2 + 1} textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight="600" fill={style.text}>
                       {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
                     </text>
                   )}
@@ -578,18 +489,12 @@ export default function FlowsPage() {
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6" onClick={e => e.stopPropagation()}>
             <h2 className="text-base font-semibold text-gray-900 mb-4">Gem flow</h2>
             <label className="block text-xs font-medium text-gray-600 mb-1">Navn på flow</label>
-            <input
-              autoFocus
-              value={saveName}
-              onChange={e => setSaveName(e.target.value)}
+            <input autoFocus value={saveName} onChange={e => setSaveName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') saveFlow() }}
               placeholder="F.eks. Modtagekontrol, Pasteurisering..."
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-4"
-            />
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-4" />
             <div className="flex justify-between">
-              <button onClick={() => setShowSaveModal(false)} className="text-xs px-4 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
-                Annuller
-              </button>
+              <button onClick={() => setShowSaveModal(false)} className="text-xs px-4 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">Annuller</button>
               <button onClick={saveFlow} disabled={saving || !saveName.trim()} className="text-xs px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50">
                 {saving ? 'Gemmer...' : 'Gem'}
               </button>
@@ -613,21 +518,16 @@ export default function FlowsPage() {
               ) : (
                 <div className="flex flex-col gap-2">
                   {savedFlows.map(flow => (
-                    <div
-                      key={flow.id}
-                      onClick={() => loadFlow(flow)}
-                      className={`flex items-center justify-between px-4 py-3 border rounded-xl cursor-pointer hover:shadow-sm transition-all ${currentFlowId === flow.id ? 'border-emerald-200 bg-emerald-50' : 'border-gray-100 hover:border-gray-200'}`}
-                    >
+                    <div key={flow.id} onClick={() => loadFlow(flow)}
+                      className={`flex items-center justify-between px-4 py-3 border rounded-xl cursor-pointer hover:shadow-sm transition-all ${currentFlowId === flow.id ? 'border-emerald-200 bg-emerald-50' : 'border-gray-100 hover:border-gray-200'}`}>
                       <div>
                         <div className="text-sm font-medium text-gray-800">{flow.name}</div>
                         <div className="text-xs text-gray-400">
                           {flow.data?.nodes?.length || 0} elementer · Sidst ændret {new Date(flow.updated_at).toLocaleDateString('da-DK')}
                         </div>
                       </div>
-                      <button
-                        onClick={e => deleteFlow(flow.id, e)}
-                        className="text-xs px-2.5 py-1 border border-red-200 text-red-500 rounded-lg hover:bg-red-50 ml-3 flex-shrink-0"
-                      >
+                      <button onClick={e => deleteFlow(flow.id, e)}
+                        className="text-xs px-2.5 py-1 border border-red-200 text-red-500 rounded-lg hover:bg-red-50 ml-3 flex-shrink-0">
                         Slet
                       </button>
                     </div>
