@@ -30,7 +30,7 @@ type SavedFlow = {
   id: string
   name: string
   data: FlowData
-  version: number
+  version: string
   created_at: string
   updated_at: string
   naeste_revision: string | null
@@ -53,7 +53,7 @@ const ARROW_SIZE = 8
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
-function wrapText(text: string, maxChars = 13): string[] {
+function wrapText(text: string, maxChars = 10): string[] {
   const words = text.split(' ')
   const lines: string[] = []
   let current = ''
@@ -84,18 +84,31 @@ function renderShape(node: FlowNode, isSelected: boolean, isConnecting: boolean)
   const strokeColor = isSelected || isConnecting ? '#0ea5e9' : cfg.stroke
   const strokeWidth = isSelected || isConnecting ? 2.5 : 1.5
   const filter = isSelected ? 'drop-shadow(0 2px 8px rgba(0,0,0,0.15))' : undefined
-  const lines = wrapText(node.label)
-  const lineH = 16
-  const textH = lines.length * lineH
-  const textStartY = NODE_H / 2 - textH / 2 + lineH / 2
-  const textEls = lines.map((line, i) => (
-    <text key={i} x={NODE_W / 2} y={textStartY + i * lineH}
-      textAnchor="middle" dominantBaseline="middle"
-      fontSize="12" fontWeight="600" fill={cfg.textColor}>{line}</text>
-  ))
+  const clipId = `clip-${node.id}`
+  // Text padding inside shape
+  const padX = cfg.shape === 'circle' ? 20 : cfg.shape === 'diamond' ? 30 : cfg.shape === 'triangle' ? 24 : 8
+  const padY = cfg.shape === 'diamond' ? 16 : cfg.shape === 'triangle' ? 20 : 6
+  const textW = NODE_W - padX * 2
+  const textH = NODE_H - padY * 2
+  const lines = wrapText(node.label, cfg.shape === 'circle' ? 9 : cfg.shape === 'diamond' ? 8 : cfg.shape === 'triangle' ? 8 : 12)
+  const lineH = 15
+  const totalTextH = lines.length * lineH
+  const textStartY = NODE_H / 2 - totalTextH / 2 + lineH / 2
+  const textEls = (
+    <g clipPath={`url(#${clipId})`}>
+      <clipPath id={clipId}>
+        <rect x={padX} y={padY} width={textW} height={textH} />
+      </clipPath>
+      {lines.map((line, i) => (
+        <text key={i} x={NODE_W / 2} y={textStartY + i * lineH}
+          textAnchor="middle" dominantBaseline="middle"
+          fontSize="11" fontWeight="600" fill={cfg.textColor}>{line}</text>
+      ))}
+    </g>
+  )
   switch (cfg.shape) {
     case 'circle':
-      return <><ellipse cx={NODE_W / 2} cy={NODE_H / 2} rx={NODE_W / 2} ry={NODE_H / 2} fill={cfg.fill} stroke={strokeColor} strokeWidth={strokeWidth} filter={filter} />{textEls}</>
+      return <><ellipse cx={NODE_W / 2} cy={NODE_H / 2} rx={NODE_W / 2 - 1} ry={NODE_H / 2 - 1} fill={cfg.fill} stroke={strokeColor} strokeWidth={strokeWidth} filter={filter} />{textEls}</>
     case 'parallelogram': {
       const skew = 16
       return <><polygon points={`${skew},0 ${NODE_W},0 ${NODE_W - skew},${NODE_H} 0,${NODE_H}`} fill={cfg.fill} stroke={strokeColor} strokeWidth={strokeWidth} filter={filter} />{textEls}</>
@@ -361,7 +374,11 @@ export default function FlowsPage() {
     const flowData: FlowData = { nodes, edges }
     if (currentFlowId) {
       const cur = savedFlows.find(f => f.id === currentFlowId)
-      const newVersion = (cur?.version || 1) + 1
+      const curVer = cur?.version ? String(cur.version) : '1.0'
+      const parts = curVer.split('.')
+      const major = parseInt(parts[0] || '1')
+      const minor = parseInt(parts[1] || '0')
+      const newVersion = `${major}.${minor + 1}`
       await supabase.from('flows').update({
         name: saveName.trim(),
         data: flowData,
@@ -374,7 +391,7 @@ export default function FlowsPage() {
         user_id: user.id,
         name: saveName.trim(),
         data: flowData,
-        version: 1,
+        version: '1.0',
         naeste_revision: saveNaestRevision || null,
       }).select().single()
       if (data) setCurrentFlowId(data.id)
