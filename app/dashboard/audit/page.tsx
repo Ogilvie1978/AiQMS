@@ -35,6 +35,14 @@ type AuditFund = {
   lukket: boolean
 }
 
+type Virksomhed = {
+  navn: string
+  cvr: string
+  adresse: string
+  postnr: string
+  by: string
+}
+
 const STATUS_STYLE: Record<AuditStatus, string> = {
   Planlagt:      'bg-blue-50 text-blue-600 border-blue-200',
   Igangværende:  'bg-amber-50 text-amber-600 border-amber-200',
@@ -74,6 +82,7 @@ const emptyFund = {
 export default function AuditPage() {
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null)
   const [audits, setAudits] = useState<Audit[]>([])
+  const [virksomhed, setVirksomhed] = useState<Virksomhed | null>(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [selected, setSelected] = useState<Audit | null>(null)
@@ -81,13 +90,11 @@ export default function AuditPage() {
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<'detaljer' | 'fund'>('detaljer')
 
-  // Fund
   const [fund, setFund] = useState<AuditFund[]>([])
   const [showFundForm, setShowFundForm] = useState(false)
   const [fundForm, setFundForm] = useState(emptyFund)
   const [savingFund, setSavingFund] = useState(false)
 
-  // Detail view
   const [viewAudit, setViewAudit] = useState<Audit | null>(null)
   const [viewFund, setViewFund] = useState<AuditFund[]>([])
 
@@ -104,6 +111,11 @@ export default function AuditPage() {
       .eq('user_id', user.id)
       .order('planlagt_dato', { ascending: false })
     setAudits(data || [])
+
+    const { data: vData } = await supabase
+      .from('virksomhed').select('*').eq('user_id', user.id).maybeSingle()
+    if (vData) setVirksomhed(vData)
+
     setLoading(false)
   }
 
@@ -124,10 +136,18 @@ export default function AuditPage() {
     setSaving(true)
     if (selected) {
       await supabase.from('audits').update({
-        ...form, updated_at: new Date().toISOString()
+        ...form,
+        planlagt_dato: form.planlagt_dato || null,
+        gennemfoert_dato: form.gennemfoert_dato || null,
+        updated_at: new Date().toISOString()
       }).eq('id', selected.id)
     } else {
-      await supabase.from('audits').insert({ ...form, user_id: user.id })
+      await supabase.from('audits').insert({
+        ...form,
+        user_id: user.id,
+        planlagt_dato: form.planlagt_dato || null,
+        gennemfoert_dato: form.gennemfoert_dato || null,
+      })
     }
     setSaving(false)
     setShowForm(false)
@@ -184,6 +204,10 @@ export default function AuditPage() {
   }
 
   const printReport = (audit: Audit, fundListe: AuditFund[]) => {
+    const vNavn = virksomhed?.navn || 'AiQMS'
+    const vCvr = virksomhed?.cvr ? ` · CVR: ${virksomhed.cvr}` : ''
+    const vAdresse = virksomhed?.adresse ? `${virksomhed.adresse}, ${virksomhed.postnr || ''} ${virksomhed.by || ''}`.trim() : ''
+
     const majors = fundListe.filter(f => f.type === 'Major')
     const minors = fundListe.filter(f => f.type === 'Minor')
     const obs = fundListe.filter(f => f.type === 'Observation')
@@ -192,7 +216,7 @@ export default function AuditPage() {
     const fundSection = (titel: string, color: string, items: AuditFund[]) =>
       items.length === 0 ? '' : `
         <h3 style="font-size:13px;font-weight:700;color:${color};margin:16px 0 8px">${titel} (${items.length})</h3>
-        ${items.map((f, i) => `
+        ${items.map(f => `
           <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:8px">
             <div style="font-size:12px;color:#6b7280;margin-bottom:4px">${f.krav_reference ? `Krav: ${f.krav_reference}` : ''}</div>
             <div style="font-size:13px;color:#111827">${f.beskrivelse}</div>
@@ -205,10 +229,14 @@ export default function AuditPage() {
     if (!w) return
     w.document.write(`<!DOCTYPE html><html><head><title>Auditrapport — ${audit.titel}</title>
     <style>
-      body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #111; }
-      .header { border-bottom: 2px solid #111; padding-bottom: 16px; margin-bottom: 24px; }
-      .header h1 { font-size: 22px; margin: 0 0 4px; }
-      .header .sub { font-size: 13px; color: #6b7280; }
+      @page { margin: 20mm; size: A4; }
+      body { font-family: Arial, sans-serif; max-width: 100%; margin: 0; padding: 0; color: #111; font-size: 13px; }
+      .doc-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111827; padding-bottom: 14px; margin-bottom: 20px; }
+      .doc-header .company { font-size: 15px; font-weight: 700; color: #111827; margin-bottom: 2px; }
+      .doc-header .address { font-size: 11px; color: #6b7280; }
+      .doc-header .right { text-align: right; font-size: 11px; color: #6b7280; }
+      h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+      .sub { font-size: 13px; color: #6b7280; margin-bottom: 20px; }
       .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
       .meta-item { background: #f9fafb; border-radius: 8px; padding: 10px 14px; }
       .meta-item .label { font-size: 11px; color: #9ca3af; margin-bottom: 2px; }
@@ -216,14 +244,23 @@ export default function AuditPage() {
       .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 24px; }
       .summary-box { text-align: center; padding: 12px; border-radius: 8px; }
       .section-title { font-size: 14px; font-weight: 700; color: #374151; margin: 20px 0 8px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
-      .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af; display: flex; justify-content: space-between; }
-      @media print { body { margin: 20px; } }
+      .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #9ca3af; display: flex; justify-content: space-between; }
     </style></head><body>
-    <div class="header">
-      <div class="sub">AUDITRAPPORT · AiQMS</div>
-      <h1>${audit.titel}</h1>
-      <div class="sub">${audit.type}${audit.standard ? ' · ' + audit.standard : ''}</div>
+
+    <div class="doc-header">
+      <div>
+        <div class="company">${vNavn}${vCvr}</div>
+        ${vAdresse ? `<div class="address">${vAdresse}</div>` : ''}
+        <div style="font-size:11px;color:#6b7280;margin-top:4px">Auditrapport · AiQMS</div>
+      </div>
+      <div class="right">
+        <div>${audit.type}${audit.standard ? ' · ' + audit.standard : ''}</div>
+        <div style="margin-top:2px">${audit.status}</div>
+      </div>
     </div>
+
+    <h1>${audit.titel}</h1>
+    <div class="sub">${audit.type}${audit.standard ? ' · ' + audit.standard : ''}</div>
 
     <div class="meta-grid">
       <div class="meta-item"><div class="label">Planlagt dato</div><div class="value">${new Date(audit.planlagt_dato).toLocaleDateString('da-DK')}</div></div>
@@ -234,7 +271,7 @@ export default function AuditPage() {
       <div class="meta-item"><div class="label">Status</div><div class="value">${audit.status}</div></div>
     </div>
 
-    ${audit.formaal ? `<div class="section-title">Formål</div><p style="font-size:13px;color:#374151">${audit.formaal}</p>` : ''}
+    ${audit.formaal ? `<div class="section-title">Formål</div><p style="font-size:13px;color:#374151;line-height:1.6">${audit.formaal}</p>` : ''}
 
     <div class="section-title">Opsummering af fund</div>
     <div class="summary">
@@ -249,18 +286,17 @@ export default function AuditPage() {
     ${fundSection('Observationer', '#2563eb', obs)}
     ${fundSection('Positiv praksis', '#16a34a', pos)}
 
-    ${audit.konklusion ? `<div class="section-title">Konklusion</div><p style="font-size:13px;color:#374151">${audit.konklusion}</p>` : ''}
+    ${audit.konklusion ? `<div class="section-title">Konklusion</div><p style="font-size:13px;color:#374151;line-height:1.6">${audit.konklusion}</p>` : ''}
 
     <div class="footer">
-      <span>AiQMS Auditmodul · Genereret ${new Date().toLocaleDateString('da-DK')}</span>
-      <span>${audit.standard || ''}</span>
+      <span>${vNavn} · Auditrapport · ${audit.standard || 'Intern'}</span>
+      <span>Udskrevet ${new Date().toLocaleDateString('da-DK')}</span>
     </div>
     </body></html>`)
     w.document.close()
     w.print()
   }
 
-  // KPI
   const planlagte = audits.filter(a => a.status === 'Planlagt').length
   const igangvaerende = audits.filter(a => a.status === 'Igangværende').length
   const gennemfoerte = audits.filter(a => a.status === 'Gennemført' || a.status === 'Lukket').length
@@ -274,7 +310,6 @@ export default function AuditPage() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* NAV */}
       <nav className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <a href="/dashboard" className="text-sm text-gray-400 hover:text-gray-700">← Dashboard</a>
@@ -291,7 +326,6 @@ export default function AuditPage() {
 
       <main className="max-w-5xl mx-auto px-6 py-8">
 
-        {/* KPI */}
         <div className="grid grid-cols-3 gap-4 mb-8">
           <div className="bg-white border border-gray-100 rounded-xl p-4">
             <div className="text-xs text-gray-400 mb-1">Planlagte</div>
@@ -307,7 +341,6 @@ export default function AuditPage() {
           </div>
         </div>
 
-        {/* LIST */}
         {audits.length === 0 ? (
           <div className="bg-white border border-gray-100 rounded-xl p-12 text-center">
             <div className="text-4xl mb-3">🔍</div>
@@ -322,8 +355,7 @@ export default function AuditPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {audits.map(a => (
-              <div key={a.id}
-                onClick={() => openView(a)}
+              <div key={a.id} onClick={() => openView(a)}
                 className="bg-white border border-gray-100 rounded-xl p-5 hover:shadow-sm transition-shadow cursor-pointer">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
@@ -361,7 +393,6 @@ export default function AuditPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setViewAudit(null)}>
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white">
               <div>
                 <h2 className="text-base font-semibold text-gray-900">{viewAudit.titel}</h2>
@@ -397,7 +428,6 @@ export default function AuditPage() {
                 </div>
               )}
 
-              {/* Fund */}
               {viewFund.length > 0 && (
                 <div>
                   <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Fund ({viewFund.length})</div>
@@ -436,8 +466,7 @@ export default function AuditPage() {
             </div>
 
             <div className="px-6 py-4 border-t border-gray-100 flex justify-between sticky bottom-0 bg-white">
-              <button
-                onClick={() => printReport(viewAudit, viewFund)}
+              <button onClick={() => printReport(viewAudit, viewFund)}
                 className="text-xs px-4 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
                 🖨️ Print rapport
               </button>
