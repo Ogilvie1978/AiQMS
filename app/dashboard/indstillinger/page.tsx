@@ -46,6 +46,7 @@ export default function IndstillingerPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [exists, setExists] = useState(false)
   const router = useRouter()
   const supabase = createClient()
@@ -74,7 +75,7 @@ export default function IndstillingerPage() {
           email: data.email || '',
           branche: data.branche || '',
           antal_ansatte: data.antal_ansatte || '',
-          certificeringer: data.certificeringer || [],
+          certificeringer: Array.isArray(data.certificeringer) ? data.certificeringer : [],
           logo_url: data.logo_url || '',
         })
       }
@@ -95,14 +96,37 @@ export default function IndstillingerPage() {
   const save = async () => {
     if (!user) return
     setSaving(true)
+    setSaveError('')
+
+    const payload = {
+      navn: form.navn,
+      cvr: form.cvr,
+      adresse: form.adresse,
+      postnr: form.postnr,
+      by: form.by,
+      telefon: form.telefon,
+      email: form.email,
+      branche: form.branche,
+      antal_ansatte: form.antal_ansatte,
+      certificeringer: form.certificeringer,
+      logo_url: form.logo_url,
+      updated_at: new Date().toISOString(),
+    }
+
     if (exists) {
-      await supabase.from('virksomhed').update({
-        ...form, updated_at: new Date().toISOString()
-      }).eq('user_id', user.id)
+      const { error } = await supabase
+        .from('virksomhed')
+        .update(payload)
+        .eq('user_id', user.id)
+      if (error) { setSaveError(error.message); setSaving(false); return }
     } else {
-      await supabase.from('virksomhed').insert({ ...form, user_id: user.id })
+      const { error } = await supabase
+        .from('virksomhed')
+        .insert({ ...payload, user_id: user.id })
+      if (error) { setSaveError(error.message); setSaving(false); return }
       setExists(true)
     }
+
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
@@ -117,20 +141,22 @@ export default function IndstillingerPage() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* NAV */}
       <nav className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <a href="/dashboard" className="text-sm text-gray-400 hover:text-gray-700">← Dashboard</a>
           <div className="w-px h-4 bg-gray-200" />
           <span className="text-sm font-semibold text-gray-900">Indstillinger</span>
         </div>
-        <button
-          onClick={save}
-          disabled={saving}
-          className="text-xs px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50"
-        >
-          {saving ? 'Gemmer...' : saved ? '✓ Gemt' : 'Gem profil'}
-        </button>
+        <div className="flex items-center gap-3">
+          {saveError && <span className="text-xs text-red-500">⚠️ {saveError}</span>}
+          <button
+            onClick={save}
+            disabled={saving}
+            className="text-xs px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50"
+          >
+            {saving ? 'Gemmer...' : saved ? '✓ Gemt' : 'Gem profil'}
+          </button>
+        </div>
       </nav>
 
       <main className="max-w-3xl mx-auto px-6 py-8">
@@ -149,73 +175,52 @@ export default function IndstillingerPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Virksomhedsnavn</label>
-                  <input
-                    value={form.navn}
-                    onChange={e => setForm(f => ({ ...f, navn: e.target.value }))}
+                  <input value={form.navn} onChange={e => setForm(f => ({ ...f, navn: e.target.value }))}
                     placeholder="F.eks. Hansen Slagteri A/S"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">CVR-nummer</label>
-                  <input
-                    value={form.cvr}
-                    onChange={e => setForm(f => ({ ...f, cvr: e.target.value }))}
+                  <input value={form.cvr} onChange={e => setForm(f => ({ ...f, cvr: e.target.value }))}
                     placeholder="12345678"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Adresse</label>
-                <input
-                  value={form.adresse}
-                  onChange={e => setForm(f => ({ ...f, adresse: e.target.value }))}
+                <input value={form.adresse} onChange={e => setForm(f => ({ ...f, adresse: e.target.value }))}
                   placeholder="Gadenavn og nummer"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
               </div>
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Postnummer</label>
-                  <input
-                    value={form.postnr}
-                    onChange={e => setForm(f => ({ ...f, postnr: e.target.value }))}
+                  <input value={form.postnr} onChange={e => setForm(f => ({ ...f, postnr: e.target.value }))}
                     placeholder="1234"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-600 mb-1">By</label>
-                  <input
-                    value={form.by}
-                    onChange={e => setForm(f => ({ ...f, by: e.target.value }))}
+                  <input value={form.by} onChange={e => setForm(f => ({ ...f, by: e.target.value }))}
                     placeholder="København"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Telefon</label>
-                  <input
-                    value={form.telefon}
-                    onChange={e => setForm(f => ({ ...f, telefon: e.target.value }))}
+                  <input value={form.telefon} onChange={e => setForm(f => ({ ...f, telefon: e.target.value }))}
                     placeholder="+45 12 34 56 78"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">E-mail</label>
-                  <input
-                    value={form.email}
-                    onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                  <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                     placeholder="kontakt@virksomhed.dk"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
               </div>
             </div>
@@ -227,23 +232,16 @@ export default function IndstillingerPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Branche</label>
-                <select
-                  value={form.branche}
-                  onChange={e => setForm(f => ({ ...f, branche: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
+                <select value={form.branche} onChange={e => setForm(f => ({ ...f, branche: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
                   <option value="">— Vælg branche —</option>
                   {BRANCHER.map(b => <option key={b} value={b}>{b}</option>)}
                 </select>
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Antal ansatte</label>
-                <select
-                  value={form.antal_ansatte}
-                  onChange={e => setForm(f => ({ ...f, antal_ansatte: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
+                <select value={form.antal_ansatte} onChange={e => setForm(f => ({ ...f, antal_ansatte: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
                   <option value="">— Vælg størrelse —</option>
                   <option>1–9 ansatte</option>
                   <option>10–49 ansatte</option>
@@ -262,15 +260,12 @@ export default function IndstillingerPage() {
               {CERTIFICERINGER.map(cert => {
                 const active = form.certificeringer.includes(cert)
                 return (
-                  <button
-                    key={cert}
-                    onClick={() => toggleCertificering(cert)}
+                  <button key={cert} onClick={() => toggleCertificering(cert)}
                     className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${
                       active
                         ? 'bg-emerald-500 text-white border-emerald-500'
                         : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300 hover:text-emerald-600'
-                    }`}
-                  >
+                    }`}>
                     {active ? '✓ ' : ''}{cert}
                   </button>
                 )
@@ -286,27 +281,22 @@ export default function IndstillingerPage() {
                 <div className="text-sm text-gray-700">{user?.email}</div>
                 <div className="text-xs text-gray-400 mt-0.5">Logget ind som</div>
               </div>
-              <a
-                href="/login"
-                onClick={async e => {
-                  e.preventDefault()
+              <button
+                onClick={async () => {
                   await supabase.auth.signOut()
                   router.push('/login')
                 }}
                 className="text-xs px-3 py-1.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50"
               >
                 Log ud
-              </a>
+              </button>
             </div>
           </div>
 
           {/* GEM KNAP */}
           <div className="flex justify-end">
-            <button
-              onClick={save}
-              disabled={saving}
-              className="text-sm px-6 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 font-medium"
-            >
+            <button onClick={save} disabled={saving}
+              className="text-sm px-6 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 font-medium">
               {saving ? 'Gemmer...' : saved ? '✓ Profil gemt' : 'Gem profil'}
             </button>
           </div>
