@@ -11,6 +11,8 @@ const MODULES = [
   { num: '04', title: 'Afvigelser & CAPA', desc: 'Registrer og spor afvigelser', href: '/dashboard/capa', color: 'bg-red-50 border-red-100', icon: '🔧', countKey: 'capa' },
   { num: '05', title: 'Management Review', desc: 'Ledelsesgennemgang', href: '/dashboard/review', color: 'bg-green-50 border-green-100', icon: '📊', countKey: 'review' },
   { num: '06', title: 'Audit', desc: 'Planlæg og gennemfør audits', href: '/dashboard/audit', color: 'bg-slate-50 border-slate-100', icon: '🔍', countKey: 'audit' },
+  { num: '07', title: 'Leverandørstyring', desc: 'Godkendelse og evaluering', href: '/dashboard/leverandoerer', color: 'bg-teal-50 border-teal-100', icon: '🏭', countKey: 'leverandoerer' },
+  { num: '08', title: 'Indstillinger', desc: 'Virksomhedsprofil og konto', href: '/dashboard/indstillinger', color: 'bg-gray-50 border-gray-100', icon: '⚙️', countKey: 'indstillinger' },
 ]
 
 export default function Dashboard() {
@@ -23,6 +25,7 @@ export default function Dashboard() {
   const [haccpCount, setHaccpCount] = useState(0)
   const [reviewCount, setReviewCount] = useState(0)
   const [auditCount, setAuditCount] = useState(0)
+  const [leverandoerCount, setLeverandoerCount] = useState(0)
   const router = useRouter()
   const supabase = createClient()
 
@@ -32,7 +35,7 @@ export default function Dashboard() {
       if (!user) { router.push('/login'); return }
       setUser(user)
 
-      const [flows, capa, capaAab, docs, haccp, reviews, audits] = await Promise.all([
+      const [flows, capa, capaAab, docs, haccp, reviews, audits, lev] = await Promise.all([
         supabase.from('flows').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('afvigelser').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('afvigelser').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'Åben'),
@@ -40,6 +43,7 @@ export default function Dashboard() {
         supabase.from('haccp_analyser').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('management_reviews').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('audits').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('leverandoerer').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
       ])
 
       setFlowCount(flows.count || 0)
@@ -49,6 +53,7 @@ export default function Dashboard() {
       setHaccpCount(haccp.count || 0)
       setReviewCount(reviews.count || 0)
       setAuditCount(audits.count || 0)
+      setLeverandoerCount(lev.count || 0)
       setLoading(false)
     }
     getUser()
@@ -66,14 +71,16 @@ export default function Dashboard() {
     if (countKey === 'haccp') return `${haccpCount} analyse${haccpCount !== 1 ? 'r' : ''}`
     if (countKey === 'review') return `${reviewCount} review${reviewCount !== 1 ? 's' : ''}`
     if (countKey === 'audit') return `${auditCount} audit${auditCount !== 1 ? 's' : ''}`
-    return '0'
+    if (countKey === 'leverandoerer') return `${leverandoerCount} leverandør${leverandoerCount !== 1 ? 'er' : ''}`
+    if (countKey === 'indstillinger') return 'Virksomhedsprofil'
+    return '—'
   }
 
   const kpis = [
     { label: 'Åbne afvigelser', value: String(capaAaben), sub: capaAaben === 0 ? 'Ingen åbne' : 'Kræver handling', color: capaAaben === 0 ? 'text-emerald-600' : 'text-red-500' },
     { label: 'Dokumenter', value: String(docCount), sub: docCount === 0 ? 'Ingen endnu' : 'I systemet', color: 'text-gray-700' },
-    { label: 'Flows', value: String(flowCount), sub: flowCount === 0 ? 'Ingen endnu' : 'Dokumenteret', color: 'text-gray-700' },
-    { label: 'HACCP-analyser', value: String(haccpCount), sub: haccpCount === 0 ? 'Ingen endnu' : 'Gennemført', color: 'text-gray-700' },
+    { label: 'Leverandører', value: String(leverandoerCount), sub: leverandoerCount === 0 ? 'Ingen endnu' : 'Registreret', color: 'text-gray-700' },
+    { label: 'Audits', value: String(auditCount), sub: auditCount === 0 ? 'Ingen endnu' : 'I systemet', color: 'text-gray-700' },
   ]
 
   if (loading) {
@@ -101,6 +108,8 @@ export default function Dashboard() {
             <a href="/dashboard/dokumenter" className="text-xs text-gray-400 hover:text-gray-700">Dokumenter</a>
             <a href="/dashboard/review" className="text-xs text-gray-400 hover:text-gray-700">Review</a>
             <a href="/dashboard/audit" className="text-xs text-gray-400 hover:text-gray-700">Audit</a>
+            <a href="/dashboard/leverandoerer" className="text-xs text-gray-400 hover:text-gray-700">Leverandører</a>
+            <a href="/dashboard/indstillinger" className="text-xs text-gray-400 hover:text-gray-700">⚙️</a>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -118,11 +127,9 @@ export default function Dashboard() {
       <main className="max-w-6xl mx-auto px-6 py-8">
 
         {/* HEADER */}
-        <div className="flex items-start justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-1">Overblik</h1>
-            <p className="text-sm text-gray-400">Velkommen til dit QMS dashboard</p>
-          </div>
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-1">Overblik</h1>
+          <p className="text-sm text-gray-400">Velkommen til dit QMS dashboard</p>
         </div>
 
         {/* KPI CARDS */}
@@ -139,7 +146,7 @@ export default function Dashboard() {
         {/* MODULES */}
         <div className="mb-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-4">Moduler</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {MODULES.map((mod) => (
               <a
                 key={mod.num}
