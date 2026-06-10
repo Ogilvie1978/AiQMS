@@ -26,6 +26,14 @@ type Afvigelse = {
   created_at: string
 }
 
+type Virksomhed = {
+  navn: string
+  cvr: string
+  adresse: string
+  postnr: string
+  by: string
+}
+
 const ALVORLIGHED_STYLE: Record<Alvorlighed, string> = {
   Lav:     'bg-emerald-50 text-emerald-700 border-emerald-200',
   Middel:  'bg-amber-50 text-amber-700 border-amber-200',
@@ -68,6 +76,7 @@ const emptyForm = {
 export default function CapaPage() {
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null)
   const [afvigelser, setAfvigelser] = useState<Afvigelse[]>([])
+  const [virksomhed, setVirksomhed] = useState<Virksomhed | null>(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [selected, setSelected] = useState<Afvigelse | null>(null)
@@ -90,10 +99,89 @@ export default function CapaPage() {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
     setAfvigelser(data || [])
+
+    const { data: vData } = await supabase
+      .from('virksomhed').select('*').eq('user_id', user.id).maybeSingle()
+    if (vData) setVirksomhed(vData)
+
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
+
+  const printAfvigelse = (a: Afvigelse) => {
+    const vNavn = virksomhed?.navn || 'AiQMS'
+    const vCvr = virksomhed?.cvr ? ` · CVR: ${virksomhed.cvr}` : ''
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<!DOCTYPE html><html><head><title>Afvigelse — ${a.titel}</title>
+    <style>
+      @page { margin: 20mm; size: A4; }
+      body { font-family: Arial, sans-serif; max-width: 100%; margin: 0; padding: 0; color: #111; font-size: 13px; }
+      .doc-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111827; padding-bottom: 14px; margin-bottom: 20px; }
+      .doc-header .company { font-size: 15px; font-weight: 700; color: #111827; margin-bottom: 2px; }
+      .doc-header .right { text-align: right; font-size: 11px; color: #6b7280; }
+      h1 { font-size: 20px; font-weight: 700; margin: 0 0 16px 0; }
+      .badges { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+      .badge { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 99px; border: 1px solid #e5e7eb; }
+      .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+      .meta-item { background: #f9fafb; border-radius: 6px; padding: 10px 14px; }
+      .meta-item .label { font-size: 11px; color: #9ca3af; margin-bottom: 2px; }
+      .meta-item .value { font-size: 13px; font-weight: 600; color: #111; }
+      .section { margin-bottom: 16px; }
+      .section-title { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+      .section-body { font-size: 13px; color: #374151; line-height: 1.6; background: #f9fafb; border-radius: 6px; padding: 10px 14px; }
+      .capa-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+      .capa-box .capa-title { font-size: 11px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+      .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 10px; color: #9ca3af; }
+    </style></head><body>
+    <div class="doc-header">
+      <div>
+        <div class="company">${vNavn}${vCvr}</div>
+        <div style="font-size:11px;color:#6b7280">Afvigelsesrapport · AiQMS</div>
+      </div>
+      <div class="right">
+        <div>${a.type}</div>
+        <div style="margin-top:2px">${new Date(a.created_at).toLocaleDateString('da-DK')}</div>
+      </div>
+    </div>
+
+    <h1>${a.titel}</h1>
+
+    <div class="badges">
+      <span class="badge">${a.type}</span>
+      <span class="badge">${a.alvorlighed}</span>
+      <span class="badge">${a.status}</span>
+    </div>
+
+    <div class="meta-grid">
+      ${a.opdaget_dato ? `<div class="meta-item"><div class="label">Opdaget dato</div><div class="value">${new Date(a.opdaget_dato).toLocaleDateString('da-DK')}</div></div>` : ''}
+      ${a.opdaget_af ? `<div class="meta-item"><div class="label">Opdaget af</div><div class="value">${a.opdaget_af}</div></div>` : ''}
+      ${a.ansvarlig ? `<div class="meta-item"><div class="label">Ansvarlig</div><div class="value">${a.ansvarlig}</div></div>` : ''}
+      ${a.lukket_dato ? `<div class="meta-item"><div class="label">Lukket dato</div><div class="value">${new Date(a.lukket_dato).toLocaleDateString('da-DK')}</div></div>` : ''}
+    </div>
+
+    ${a.beskrivelse ? `<div class="section"><div class="section-title">Beskrivelse</div><div class="section-body">${a.beskrivelse}</div></div>` : ''}
+    ${a.rodaarsag ? `<div class="section"><div class="section-title">Rodårsag</div><div class="section-body">${a.rodaarsag}</div></div>` : ''}
+
+    ${a.capa_handling || a.capa_ansvarlig || a.capa_deadline ? `
+    <div class="capa-box">
+      <div class="capa-title">CAPA — Korrigerende handling</div>
+      ${a.capa_handling ? `<div style="font-size:13px;color:#374151;margin-bottom:10px">${a.capa_handling}</div>` : ''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        ${a.capa_ansvarlig ? `<div><div style="font-size:11px;color:#92400e;margin-bottom:2px">Ansvarlig</div><div style="font-size:13px;font-weight:600">${a.capa_ansvarlig}</div></div>` : ''}
+        ${a.capa_deadline ? `<div><div style="font-size:11px;color:#92400e;margin-bottom:2px">Deadline</div><div style="font-size:13px;font-weight:600">${new Date(a.capa_deadline).toLocaleDateString('da-DK')}</div></div>` : ''}
+      </div>
+    </div>` : ''}
+
+    <div class="footer">
+      <span>${vNavn} · Afvigelsesrapport</span>
+      <span>Udskrevet ${new Date().toLocaleDateString('da-DK')}</span>
+    </div>
+    </body></html>`)
+    w.document.close()
+    w.print()
+  }
 
   const save = async () => {
     if (!user || !form.titel.trim()) return
@@ -147,7 +235,6 @@ export default function CapaPage() {
     return true
   })
 
-  // KPI counts
   const aabne = afvigelser.filter(a => a.status === 'Åben').length
   const underBehandling = afvigelser.filter(a => a.status === 'Under behandling').length
   const kritiske = afvigelser.filter(a => a.alvorlighed === 'Kritisk' && a.status !== 'Lukket').length
@@ -162,7 +249,6 @@ export default function CapaPage() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* NAV */}
       <nav className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <a href="/dashboard" className="text-sm text-gray-400 hover:text-gray-700">← Dashboard</a>
@@ -179,7 +265,6 @@ export default function CapaPage() {
 
       <main className="max-w-5xl mx-auto px-6 py-8">
 
-        {/* KPI */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-white border border-gray-100 rounded-xl p-4">
             <div className="text-xs text-gray-400 mb-1">Åbne afvigelser</div>
@@ -199,14 +284,10 @@ export default function CapaPage() {
           </div>
         </div>
 
-        {/* FILTER */}
         <div className="flex items-center gap-3 mb-4 flex-wrap">
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+          <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Søg i afvigelser..."
-            className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 w-48"
-          />
+            className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 w-48" />
           <div className="flex items-center gap-1">
             {['Alle', 'Åben', 'Under behandling', 'Afventer verifikation', 'Lukket'].map(s => (
               <button key={s} onClick={() => setFilterStatus(s)}
@@ -225,16 +306,12 @@ export default function CapaPage() {
           </div>
         </div>
 
-        {/* LIST */}
-        {loading ? (
-          <div className="text-center py-12 text-sm text-gray-400">Indlæser...</div>
-        ) : filtered.length === 0 ? (
+        {filtered.length === 0 ? (
           <div className="bg-white border border-gray-100 rounded-xl p-12 text-center">
             <div className="text-4xl mb-3">🔧</div>
             <p className="text-sm font-medium text-gray-400 mb-1">Ingen afvigelser endnu</p>
             <p className="text-xs text-gray-300 mb-4">Registrer din første afvigelse for at komme i gang</p>
-            <button
-              onClick={() => { setSelected(null); setForm(emptyForm); setShowForm(true) }}
+            <button onClick={() => { setSelected(null); setForm(emptyForm); setShowForm(true) }}
               className="text-xs px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700">
               + Ny afvigelse
             </button>
@@ -244,11 +321,8 @@ export default function CapaPage() {
             {filtered.map(a => {
               const deadlineOverskredet = a.capa_deadline && new Date(a.capa_deadline) < new Date() && a.status !== 'Lukket'
               return (
-                <div
-                  key={a.id}
-                  onClick={() => setViewItem(a)}
-                  className={`bg-white border rounded-xl p-5 hover:shadow-sm transition-shadow cursor-pointer ${deadlineOverskredet ? 'border-red-200' : 'border-gray-100'}`}
-                >
+                <div key={a.id} onClick={() => setViewItem(a)}
+                  className={`bg-white border rounded-xl p-5 hover:shadow-sm transition-shadow cursor-pointer ${deadlineOverskredet ? 'border-red-200' : 'border-gray-100'}`}>
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -268,13 +342,9 @@ export default function CapaPage() {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
                       <button onClick={() => openEdit(a)}
-                        className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
-                        Rediger
-                      </button>
+                        className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">Rediger</button>
                       <button onClick={() => deleteAfvigelse(a.id)}
-                        className="text-xs px-3 py-1.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50">
-                        Slet
-                      </button>
+                        className="text-xs px-3 py-1.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50">Slet</button>
                     </div>
                   </div>
                 </div>
@@ -308,7 +378,6 @@ export default function CapaPage() {
                   <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-4 py-3">{viewItem.beskrivelse}</p>
                 </div>
               )}
-
               <div className="grid grid-cols-2 gap-3">
                 {viewItem.opdaget_dato && (
                   <div className="bg-gray-50 rounded-lg px-4 py-3">
@@ -329,14 +398,12 @@ export default function CapaPage() {
                   </div>
                 )}
               </div>
-
               {viewItem.rodaarsag && (
                 <div>
                   <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Rodårsag</div>
                   <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-4 py-3">{viewItem.rodaarsag}</p>
                 </div>
               )}
-
               {(viewItem.capa_handling || viewItem.capa_deadline || viewItem.capa_ansvarlig) && (
                 <div className="border border-amber-100 bg-amber-50 rounded-xl p-4">
                   <div className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-3">CAPA — Korrigerende handling</div>
@@ -362,8 +429,16 @@ export default function CapaPage() {
             </div>
 
             <div className="px-6 py-4 border-t border-gray-100 flex justify-between sticky bottom-0 bg-white">
-              <button onClick={() => setViewItem(null)} className="text-xs px-4 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">Luk</button>
-              <button onClick={() => openEdit(viewItem)} className="text-xs px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700">Rediger</button>
+              <button onClick={() => printAfvigelse(viewItem)}
+                className="text-xs px-4 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
+                🖨️ Print rapport
+              </button>
+              <div className="flex gap-2">
+                <button onClick={() => openEdit(viewItem)}
+                  className="text-xs px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">Rediger</button>
+                <button onClick={() => setViewItem(null)}
+                  className="text-xs px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700">Luk</button>
+              </div>
             </div>
           </div>
         </div>
@@ -374,21 +449,17 @@ export default function CapaPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowForm(false)}>
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white">
               <h2 className="text-base font-semibold text-gray-900">{selected ? 'Rediger afvigelse' : 'Ny afvigelse'}</h2>
               <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
-
             <div className="px-6 py-5 space-y-4">
-
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Titel *</label>
                 <input value={form.titel} onChange={e => setForm(f => ({ ...f, titel: e.target.value }))}
                   placeholder="Kort beskrivelse af afvigelsen"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
               </div>
-
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
@@ -423,7 +494,6 @@ export default function CapaPage() {
                   </select>
                 </div>
               </div>
-
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Opdaget dato</label>
@@ -443,7 +513,6 @@ export default function CapaPage() {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Beskrivelse</label>
                 <textarea value={form.beskrivelse} onChange={e => setForm(f => ({ ...f, beskrivelse: e.target.value }))}
@@ -451,7 +520,6 @@ export default function CapaPage() {
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none" />
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Rodårsag</label>
                 <textarea value={form.rodaarsag} onChange={e => setForm(f => ({ ...f, rodaarsag: e.target.value }))}
@@ -459,8 +527,6 @@ export default function CapaPage() {
                   rows={2}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none" />
               </div>
-
-              {/* CAPA */}
               <div className="border border-amber-100 rounded-xl p-4 bg-amber-50">
                 <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-3">CAPA — Korrigerende handling</p>
                 <div className="space-y-3">
@@ -486,7 +552,6 @@ export default function CapaPage() {
                   </div>
                 </div>
               </div>
-
               {form.status === 'Lukket' && (
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Lukket dato</label>
@@ -495,12 +560,9 @@ export default function CapaPage() {
                 </div>
               )}
             </div>
-
             <div className="px-6 py-4 border-t border-gray-100 flex justify-between sticky bottom-0 bg-white">
               <button onClick={() => setShowForm(false)}
-                className="text-xs px-4 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
-                Annuller
-              </button>
+                className="text-xs px-4 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">Annuller</button>
               <button onClick={save} disabled={saving || !form.titel.trim()}
                 className="text-xs px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50">
                 {saving ? 'Gemmer...' : selected ? 'Gem ændringer' : 'Opret afvigelse'}
