@@ -433,6 +433,12 @@ export default function CapaPage() {
                   </div>
                 </div>
               )}
+              {viewItem.forebyggelse && (
+                <div className="border border-emerald-100 bg-emerald-50 rounded-xl p-4">
+                  <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-2">Forebyggelse</div>
+                  <p className="text-sm text-emerald-900">{viewItem.forebyggelse}</p>
+                </div>
+              )}
             </div>
 
             <div className="px-6 py-4 border-t border-gray-100 flex justify-between sticky bottom-0 bg-white">
