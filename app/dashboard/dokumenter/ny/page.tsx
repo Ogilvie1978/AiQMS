@@ -226,27 +226,69 @@ function DokumentEditorInner() {
   const print = () => {
     const w = window.open('', '_blank')
     if (!w) return
+    const vNavn = virksomhed?.navn || ''
+    const vCvr = virksomhed?.cvr ? ` · CVR: ${virksomhed.cvr}` : ''
+    const vAdresse = virksomhed?.adresse ? `${virksomhed.adresse}, ${virksomhed.postnr || ''} ${virksomhed.by || ''}`.trim() : ''
+
     w.document.write(`<!DOCTYPE html><html><head><title>${titel}</title>
     <style>
-      body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #111; }
-      .top-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 20px; font-size: 11px; color: #888; }
-      .top-header strong { color: #444; font-size: 13px; }
-      h1 { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
-      h2 { font-size: 15px; font-weight: 700; margin-top: 24px; margin-bottom: 8px; }
-      p, li { font-size: 13px; line-height: 1.7; }
-      ol, ul { padding-left: 20px; }
-      .footer { margin-top: 60px; padding-top: 12px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 11px; color: #888; flex-wrap: wrap; gap: 8px; }
-      @media print { body { margin: 20px; } }
+      @page { margin: 20mm; size: A4; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; max-width: 100%; margin: 0; padding: 0; color: #111; font-size: 13px; }
+
+      .doc-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111827; padding-bottom: 14px; margin-bottom: 20px; }
+      .doc-header-left .company { font-size: 15px; font-weight: 700; color: #111827; margin-bottom: 2px; }
+      .doc-header-left .address { font-size: 11px; color: #6b7280; }
+      .doc-header-right { text-align: right; }
+      .doc-header-right .doc-type { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+      .doc-header-right .doc-version { font-size: 12px; font-weight: 600; color: #374151; }
+
+      h1.doc-title { font-size: 22px; font-weight: 700; margin: 0 0 20px 0; color: #111827; }
+
+      .meta-bar { display: flex; gap: 20px; flex-wrap: wrap; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 14px; margin-bottom: 24px; font-size: 11px; color: #6b7280; }
+      .meta-bar span strong { color: #374151; }
+
+      .doc-body h1 { font-size: 18px; font-weight: 700; margin-top: 24px; margin-bottom: 8px; color: #111827; }
+      .doc-body h2 { font-size: 14px; font-weight: 700; margin-top: 20px; margin-bottom: 6px; color: #111827; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+      .doc-body p { margin-bottom: 8px; line-height: 1.7; color: #374151; }
+      .doc-body ul, .doc-body ol { padding-left: 20px; margin-bottom: 12px; }
+      .doc-body li { margin-bottom: 4px; line-height: 1.6; color: #374151; }
+      .doc-body strong, .doc-body b { font-weight: 700; }
+
+      .doc-footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 10px; color: #9ca3af; }
     </style></head><body>
-    <div class="top-header">
-      <strong>${virksomhed?.navn || 'AiQMS'}${virksomhed?.cvr ? ' · CVR: ' + virksomhed.cvr : ''}</strong>
+
+    <div class="doc-header">
+      <div class="doc-header-left">
+        ${vNavn ? `<div class="company">${vNavn}${vCvr}</div>` : '<div class="company">AiQMS</div>'}
+        ${vAdresse ? `<div class="address">${vAdresse}</div>` : ''}
+      </div>
+      <div class="doc-header-right">
+        <div class="doc-type">${meta.type}</div>
+        <div class="doc-version">Version ${version}</div>
+        ${meta.status ? `<div style="font-size:11px;color:#6b7280">${meta.status}</div>` : ''}
+      </div>
     </div>
-    <h1>${titel}</h1>
-    ${(editorRef.current?.innerHTML || indholdRef.current || indhold).replace(/<p[^>]*style="[^"]*border-bottom[^"]*"[^>]*>[\s\S]*?<\/p>/i, '').trim()}
-    <div class="footer">
-      <span>Version ${version || '1.0'} · Sidst redigeret: ${new Date().toLocaleDateString('da-DK')}</span>
-      <span>${meta.gyldig_fra ? 'Gyldig fra: ' + new Date(meta.gyldig_fra).toLocaleDateString('da-DK') : ''}${meta.gyldig_til ? ' · Gyldig til: ' + new Date(meta.gyldig_til).toLocaleDateString('da-DK') : ''}</span>
+
+    <h1 class="doc-title">${titel}</h1>
+
+    <div class="meta-bar">
+      ${meta.ansvarlig ? `<span><strong>Ansvarlig:</strong> ${meta.ansvarlig}</span>` : ''}
+      ${meta.godkendt_af ? `<span><strong>Godkendt af:</strong> ${meta.godkendt_af}</span>` : ''}
+      ${meta.gyldig_fra ? `<span><strong>Gyldig fra:</strong> ${new Date(meta.gyldig_fra).toLocaleDateString('da-DK')}</span>` : ''}
+      ${meta.gyldig_til ? `<span><strong>Gyldig til:</strong> ${new Date(meta.gyldig_til).toLocaleDateString('da-DK')}</span>` : ''}
+      <span><strong>Sidst redigeret:</strong> ${new Date().toLocaleDateString('da-DK')}</span>
     </div>
+
+    <div class="doc-body">
+      ${(editorRef.current?.innerHTML || indholdRef.current || indhold).replace(/<p[^>]*style="[^"]*border-bottom[^"]*"[^>]*>[\s\S]*?<\/p>/i, '').trim()}
+    </div>
+
+    <div class="doc-footer">
+      <span>${vNavn || 'AiQMS'} · ${meta.type} · Version ${version}</span>
+      <span>Udskrevet ${new Date().toLocaleDateString('da-DK')}</span>
+    </div>
+
     </body></html>`)
     w.document.close()
     w.print()
