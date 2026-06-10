@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 
-type NodeType = 'start' | 'slut' | 'proces' | 'beslutning' | 'kontrol' | 'ccp'
+type NodeType = 'indgaaende' | 'proces' | 'udgaaende' | 'kontrol' | 'ccp' | 'beslutning'
 
 type FlowNode = {
   id: string
@@ -33,24 +33,113 @@ type SavedFlow = {
   updated_at: string
 }
 
-const NODE_STYLES: Record<NodeType, { bg: string; border: string; text: string; label: string }> = {
-  start:      { bg: '#dcfce7', border: '#16a34a', text: '#15803d', label: 'Start' },
-  slut:       { bg: '#fee2e2', border: '#dc2626', text: '#b91c1c', label: 'Slut' },
-  proces:     { bg: '#dbeafe', border: '#2563eb', text: '#1d4ed8', label: 'Proces' },
-  beslutning: { bg: '#fef9c3', border: '#ca8a04', text: '#92400e', label: 'Beslutning' },
-  kontrol:    { bg: '#f3e8ff', border: '#9333ea', text: '#7e22ce', label: 'Kontrol' },
-  ccp:        { bg: '#ffedd5', border: '#ea580c', text: '#9a3412', label: 'CCP' },
+// Node config: shape, colors, labels
+const NODE_CONFIG: Record<NodeType, { label: string; shape: string; fill: string; stroke: string; textColor: string }> = {
+  indgaaende: { label: 'Indgående varer', shape: 'circle',        fill: '#ffffff', stroke: '#111827', textColor: '#111827' },
+  proces:     { label: 'Proces',          shape: 'rect',          fill: '#ffffff', stroke: '#111827', textColor: '#111827' },
+  udgaaende:  { label: 'Udgående varer',  shape: 'parallelogram', fill: '#ffffff', stroke: '#111827', textColor: '#111827' },
+  kontrol:    { label: 'Kontrol',         shape: 'diamond',       fill: '#ffffff', stroke: '#111827', textColor: '#111827' },
+  ccp:        { label: 'CCP',             shape: 'triangle',      fill: '#fff7ed', stroke: '#ea580c', textColor: '#9a3412' },
+  beslutning: { label: 'Beslutning',      shape: 'diamond',       fill: '#fefce8', stroke: '#ca8a04', textColor: '#92400e' },
 }
 
 const NODE_W = 160
-const NODE_H = 56
+const NODE_H = 64
 const CANVAS_W = 4000
 const CANVAS_H = 4000
 const ARROW_SIZE = 8
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
-// Get the point where a line from (fromX,fromY) hits the border of the node
+function wrapText(text: string, maxChars = 18): string[] {
+  const words = text.split(' ')
+  const lines: string[] = []
+  let current = ''
+  for (const word of words) {
+    if ((current + ' ' + word).trim().length <= maxChars) {
+      current = (current + ' ' + word).trim()
+    } else {
+      if (current) lines.push(current)
+      current = word
+    }
+  }
+  if (current) lines.push(current)
+  return lines.length ? lines : ['']
+}
+
+// Render SVG shape for a node
+function renderShape(node: FlowNode, isSelected: boolean, isConnecting: boolean) {
+  const cfg = NODE_CONFIG[node.type]
+  const strokeColor = isSelected || isConnecting ? '#0ea5e9' : cfg.stroke
+  const strokeWidth = isSelected || isConnecting ? 2.5 : 1.5
+  const filter = isSelected ? 'drop-shadow(0 2px 8px rgba(0,0,0,0.15))' : undefined
+
+  const lines = wrapText(node.label)
+  const lineH = 16
+  const textH = lines.length * lineH
+  const textStartY = NODE_H / 2 - textH / 2 + lineH / 2
+
+  const textEls = lines.map((line, i) => (
+    <text key={i}
+      x={NODE_W / 2} y={textStartY + i * lineH}
+      textAnchor="middle" dominantBaseline="middle"
+      fontSize="12" fontWeight="600" fill={cfg.textColor}>
+      {line}
+    </text>
+  ))
+
+  switch (cfg.shape) {
+    case 'circle': {
+      const r = NODE_H / 2
+      return (
+        <>
+          <ellipse cx={NODE_W / 2} cy={NODE_H / 2} rx={NODE_W / 2} ry={r}
+            fill={cfg.fill} stroke={strokeColor} strokeWidth={strokeWidth} filter={filter} />
+          {textEls}
+        </>
+      )
+    }
+    case 'parallelogram': {
+      const skew = 16
+      const pts = `${skew},0 ${NODE_W},0 ${NODE_W - skew},${NODE_H} 0,${NODE_H}`
+      return (
+        <>
+          <polygon points={pts} fill={cfg.fill} stroke={strokeColor} strokeWidth={strokeWidth} filter={filter} />
+          {textEls}
+        </>
+      )
+    }
+    case 'diamond': {
+      const mx = NODE_W / 2
+      const my = NODE_H / 2
+      const pts = `${mx},0 ${NODE_W},${my} ${mx},${NODE_H} 0,${my}`
+      return (
+        <>
+          <polygon points={pts} fill={cfg.fill} stroke={strokeColor} strokeWidth={strokeWidth} filter={filter} />
+          {textEls}
+        </>
+      )
+    }
+    case 'triangle': {
+      const pts = `${NODE_W / 2},4 ${NODE_W - 4},${NODE_H - 4} 4,${NODE_H - 4}`
+      return (
+        <>
+          <polygon points={pts} fill={cfg.fill} stroke={strokeColor} strokeWidth={strokeWidth} filter={filter} />
+          {textEls}
+        </>
+      )
+    }
+    default: // rect
+      return (
+        <>
+          <rect width={NODE_W} height={NODE_H} rx="6"
+            fill={cfg.fill} stroke={strokeColor} strokeWidth={strokeWidth} filter={filter} />
+          {textEls}
+        </>
+      )
+  }
+}
+
 function getBorderPoint(node: FlowNode, fromX: number, fromY: number) {
   const cx = node.x + NODE_W / 2
   const cy = node.y + NODE_H / 2
@@ -65,20 +154,16 @@ function getBorderPoint(node: FlowNode, fromX: number, fromY: number) {
   return { x: cx + dx * s, y: cy + dy * s }
 }
 
-// Draw arrowhead polygon at point (x,y) pointing in direction (angle radians)
 function arrowHead(x: number, y: number, angle: number) {
   const a = ARROW_SIZE
   const b = ARROW_SIZE * 0.5
-  // tip at (x,y), two base points perpendicular behind
-  const tipX = x
-  const tipY = y
   const baseX = x - Math.cos(angle) * a
   const baseY = y - Math.sin(angle) * a
   const p1x = baseX + Math.cos(angle + Math.PI / 2) * b
   const p1y = baseY + Math.sin(angle + Math.PI / 2) * b
   const p2x = baseX + Math.cos(angle - Math.PI / 2) * b
   const p2y = baseY + Math.sin(angle - Math.PI / 2) * b
-  return `${tipX},${tipY} ${p1x},${p1y} ${p2x},${p2y}`
+  return `${x},${y} ${p1x},${p1y} ${p2x},${p2y}`
 }
 
 function renderEdge(fromNode: FlowNode, toNode: FlowNode, edgeId: string, label?: string) {
@@ -86,46 +171,69 @@ function renderEdge(fromNode: FlowNode, toNode: FlowNode, edgeId: string, label?
   const fromCy = fromNode.y + NODE_H / 2
   const toCx = toNode.x + NODE_W / 2
   const toCy = toNode.y + NODE_H / 2
-
-  // Start and end on node borders
   const start = getBorderPoint(fromNode, toCx, toCy)
   const end = getBorderPoint(toNode, fromCx, fromCy)
-
-  // Pull end back slightly so arrowhead tip sits on border
   const dx = end.x - start.x
   const dy = end.y - start.y
   const len = Math.sqrt(dx * dx + dy * dy)
   if (len < 1) return null
-
   const ux = dx / len
   const uy = dy / len
-
-  // Line ends just before the arrowhead tip
   const lineEndX = end.x - ux * ARROW_SIZE
   const lineEndY = end.y - uy * ARROW_SIZE
-
-  // Midpoint for label
   const midX = (start.x + end.x) / 2
   const midY = (start.y + end.y) / 2
-
-  // Angle for arrowhead
   const angle = Math.atan2(uy, ux)
   const arrowPts = arrowHead(end.x, end.y, angle)
-
   return (
     <g key={edgeId}>
-      <line
-        x1={start.x} y1={start.y}
-        x2={lineEndX} y2={lineEndY}
-        stroke="#6b7280"
-        strokeWidth="1.5"
-      />
-      <polygon points={arrowPts} fill="#6b7280" />
-      {label && (
-        <text x={midX} y={midY - 6} textAnchor="middle" fontSize="11" fill="#6b7280">
-          {label}
-        </text>
-      )}
+      <line x1={start.x} y1={start.y} x2={lineEndX} y2={lineEndY} stroke="#374151" strokeWidth="1.5" />
+      <polygon points={arrowPts} fill="#374151" />
+      {label && <text x={midX} y={midY - 6} textAnchor="middle" fontSize="11" fill="#6b7280">{label}</text>}
+    </g>
+  )
+}
+
+// Legend component rendered in top-left of canvas
+function Legend() {
+  const items = [
+    { shape: 'circle',        label: 'Indgående varer', fill: '#ffffff', stroke: '#111827' },
+    { shape: 'rect',          label: 'Proces',          fill: '#ffffff', stroke: '#111827' },
+    { shape: 'parallelogram', label: 'Udgående varer',  fill: '#ffffff', stroke: '#111827' },
+    { shape: 'diamond',       label: 'Kontrol / Beslutning', fill: '#ffffff', stroke: '#111827' },
+    { shape: 'triangle',      label: 'CCP',             fill: '#fff7ed', stroke: '#ea580c' },
+  ]
+
+  const LW = 36
+  const LH = 24
+
+  return (
+    <g transform="translate(30, 30)">
+      <rect x="-10" y="-10" width="230" height={items.length * 32 + 20} rx="8"
+        fill="white" stroke="#e5e7eb" strokeWidth="1" filter="drop-shadow(0 1px 4px rgba(0,0,0,0.08))" />
+      <text x="5" y="8" fontSize="10" fontWeight="700" fill="#6b7280" letterSpacing="0.05em">FORKLARING</text>
+      {items.map((item, i) => {
+        const y = i * 32 + 22
+        let shapeEl
+        if (item.shape === 'circle') {
+          shapeEl = <ellipse cx={LW / 2} cy={LH / 2} rx={LW / 2 - 1} ry={LH / 2 - 1} fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
+        } else if (item.shape === 'parallelogram') {
+          const sk = 5
+          shapeEl = <polygon points={`${sk},0 ${LW},0 ${LW - sk},${LH} 0,${LH}`} fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
+        } else if (item.shape === 'diamond') {
+          shapeEl = <polygon points={`${LW / 2},0 ${LW},${LH / 2} ${LW / 2},${LH} 0,${LH / 2}`} fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
+        } else if (item.shape === 'triangle') {
+          shapeEl = <polygon points={`${LW / 2},2 ${LW - 2},${LH - 2} 2,${LH - 2}`} fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
+        } else {
+          shapeEl = <rect width={LW} height={LH} rx="3" fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
+        }
+        return (
+          <g key={item.label} transform={`translate(5, ${y})`}>
+            {shapeEl}
+            <text x={LW + 8} y={LH / 2 + 1} fontSize="11" fill="#374151" dominantBaseline="middle">{item.label}</text>
+          </g>
+        )
+      })}
     </g>
   )
 }
@@ -166,11 +274,7 @@ export default function FlowsPage() {
   }, [])
 
   const loadFlows = async (userId: string) => {
-    const { data } = await supabase
-      .from('flows')
-      .select('id, name, data, updated_at')
-      .eq('user_id', userId)
-      .order('updated_at', { ascending: false })
+    const { data } = await supabase.from('flows').select('id, name, data, updated_at').eq('user_id', userId).order('updated_at', { ascending: false })
     setSavedFlows(data || [])
   }
 
@@ -188,9 +292,9 @@ export default function FlowsPage() {
   const addNode = (type: NodeType) => {
     const n: FlowNode = {
       id: uid(), type,
-      x: 300 + Math.random() * 400,
-      y: 200 + Math.random() * 300,
-      label: NODE_STYLES[type].label,
+      x: 400 + Math.random() * 400,
+      y: 300 + Math.random() * 300,
+      label: NODE_CONFIG[type].label,
     }
     setNodes(prev => [...prev, n])
     setUnsaved(true)
@@ -279,24 +383,14 @@ export default function FlowsPage() {
     setUnsaved(true)
   }
 
-  const openSaveModal = () => {
-    setSaveName(currentFlowName)
-    setShowSaveModal(true)
-  }
-
   const saveFlow = async () => {
     if (!user || !saveName.trim()) return
     setSaving(true)
     const flowData: FlowData = { nodes, edges }
     if (currentFlowId) {
-      await supabase.from('flows').update({
-        name: saveName.trim(), data: flowData,
-        updated_at: new Date().toISOString(),
-      }).eq('id', currentFlowId)
+      await supabase.from('flows').update({ name: saveName.trim(), data: flowData, updated_at: new Date().toISOString() }).eq('id', currentFlowId)
     } else {
-      const { data } = await supabase.from('flows').insert({
-        user_id: user.id, name: saveName.trim(), data: flowData,
-      }).select().single()
+      const { data } = await supabase.from('flows').insert({ user_id: user.id, name: saveName.trim(), data: flowData }).select().single()
       if (data) setCurrentFlowId(data.id)
     }
     setCurrentFlowName(saveName.trim())
@@ -352,7 +446,7 @@ export default function FlowsPage() {
         <div className="flex items-center gap-2">
           <button onClick={newFlow} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">+ Nyt flow</button>
           <button onClick={() => setShowFlowModal(true)} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">📂 Mine flows ({savedFlows.length})</button>
-          <button onClick={openSaveModal} className="text-xs px-4 py-1.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700">Gem flow</button>
+          <button onClick={() => { setSaveName(currentFlowName); setShowSaveModal(true) }} className="text-xs px-4 py-1.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700">Gem flow</button>
         </div>
       </nav>
 
@@ -363,11 +457,12 @@ export default function FlowsPage() {
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Tilføj element</p>
             <div className="flex flex-col gap-1.5">
-              {(Object.keys(NODE_STYLES) as NodeType[]).map(type => (
+              {(Object.keys(NODE_CONFIG) as NodeType[]).map(type => (
                 <button key={type} onClick={() => addNode(type)}
-                  className="text-xs px-3 py-2 rounded-lg border text-left font-medium hover:opacity-80 transition-opacity"
-                  style={{ backgroundColor: NODE_STYLES[type].bg, borderColor: NODE_STYLES[type].border, color: NODE_STYLES[type].text }}>
-                  {NODE_STYLES[type].label}
+                  className="text-xs px-3 py-2 rounded-lg border text-left font-medium hover:opacity-80 transition-opacity flex items-center gap-2"
+                  style={{ backgroundColor: '#f9fafb', borderColor: NODE_CONFIG[type].stroke, color: NODE_CONFIG[type].textColor }}>
+                  <ShapeIcon type={type} />
+                  {NODE_CONFIG[type].label}
                 </button>
               ))}
             </div>
@@ -376,8 +471,9 @@ export default function FlowsPage() {
           {selectedNode && (
             <div className="border-t border-gray-100 pt-4">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Valgt</p>
-              <div className="text-xs px-3 py-2 rounded-lg border font-medium mb-3"
-                style={{ backgroundColor: NODE_STYLES[selectedNode.type].bg, borderColor: NODE_STYLES[selectedNode.type].border, color: NODE_STYLES[selectedNode.type].text }}>
+              <div className="text-xs px-3 py-2 rounded-lg border font-medium mb-3 flex items-center gap-2"
+                style={{ borderColor: NODE_CONFIG[selectedNode.type].stroke, color: NODE_CONFIG[selectedNode.type].textColor }}>
+                <ShapeIcon type={selectedNode.type} />
                 {selectedNode.label}
               </div>
               <div className="flex flex-col gap-1.5">
@@ -421,7 +517,10 @@ export default function FlowsPage() {
             </defs>
             <rect width={CANVAS_W} height={CANVAS_H} fill="url(#grid)" />
 
-            {/* Edges — rendered below nodes */}
+            {/* Legend */}
+            <Legend />
+
+            {/* Edges */}
             {edges.map(edge => {
               const fromNode = nodes.find(n => n.id === edge.from)
               const toNode = nodes.find(n => n.id === edge.to)
@@ -431,7 +530,6 @@ export default function FlowsPage() {
 
             {/* Nodes */}
             {nodes.map(node => {
-              const style = NODE_STYLES[node.type]
               const isSelected = selected === node.id
               const isConnecting = connecting === node.id
               return (
@@ -442,39 +540,31 @@ export default function FlowsPage() {
                   onDoubleClick={e => startEditLabel(e, node)}
                   style={{ cursor: dragging?.id === node.id ? 'grabbing' : 'grab' }}
                 >
-                  <rect width={NODE_W} height={NODE_H} rx="8"
-                    fill={style.bg}
-                    stroke={isSelected || isConnecting ? '#0ea5e9' : style.border}
-                    strokeWidth={isSelected || isConnecting ? 2.5 : 1.5}
-                    filter={isSelected ? 'drop-shadow(0 2px 8px rgba(0,0,0,0.12))' : undefined}
-                  />
                   {editLabel?.id === node.id ? (
-                    <foreignObject x="4" y="4" width={NODE_W - 8} height={NODE_H - 8}>
-                      <input
-                        // @ts-ignore
-                        xmlns="http://www.w3.org/1999/xhtml"
-                        autoFocus
-                        value={editLabel.value}
-                        onChange={e => setEditLabel(prev => prev ? { ...prev, value: e.target.value } : null)}
-                        onBlur={commitLabel}
-                        onKeyDown={e => { if (e.key === 'Enter') commitLabel() }}
-                        style={{ width: '100%', height: '100%', border: 'none', background: 'transparent', fontSize: '12px', fontWeight: 600, color: style.text, textAlign: 'center', outline: 'none' }}
-                      />
-                    </foreignObject>
+                    <>
+                      <rect width={NODE_W} height={NODE_H} rx="6" fill="white" stroke="#0ea5e9" strokeWidth="2" />
+                      <foreignObject x="4" y="4" width={NODE_W - 8} height={NODE_H - 8}>
+                        <input
+                          // @ts-ignore
+                          xmlns="http://www.w3.org/1999/xhtml"
+                          autoFocus
+                          value={editLabel.value}
+                          onChange={e => setEditLabel(prev => prev ? { ...prev, value: e.target.value } : null)}
+                          onBlur={commitLabel}
+                          onKeyDown={e => { if (e.key === 'Enter') commitLabel() }}
+                          style={{ width: '100%', height: '100%', border: 'none', background: 'transparent', fontSize: '12px', fontWeight: 600, color: '#111827', textAlign: 'center', outline: 'none' }}
+                        />
+                      </foreignObject>
+                    </>
                   ) : (
-                    <text x={NODE_W / 2} y={NODE_H / 2 + 1} textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight="600" fill={style.text}>
-                      {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
-                    </text>
+                    renderShape(node, isSelected, isConnecting)
                   )}
-                  <text x={NODE_W - 6} y="10" textAnchor="end" fontSize="8" fill={style.border} opacity="0.5">
-                    {style.label.toUpperCase()}
-                  </text>
                 </g>
               )
             })}
 
             {nodes.length === 0 && (
-              <text x={CANVAS_W / 2} y={300} textAnchor="middle" fontSize="14" fill="#9ca3af">
+              <text x={CANVAS_W / 2} y={400} textAnchor="middle" fontSize="14" fill="#9ca3af">
                 Tilføj elementer fra venstre panel for at bygge dit flow
               </text>
             )}
@@ -540,4 +630,22 @@ export default function FlowsPage() {
       )}
     </div>
   )
+}
+
+// Small shape icon for toolbar
+function ShapeIcon({ type }: { type: NodeType }) {
+  const size = 16
+  const stroke = NODE_CONFIG[type].stroke
+  switch (NODE_CONFIG[type].shape) {
+    case 'circle':
+      return <svg width={size} height={size} viewBox="0 0 16 16" className="flex-shrink-0"><ellipse cx="8" cy="8" rx="7" ry="7" fill="white" stroke={stroke} strokeWidth="1.5" /></svg>
+    case 'parallelogram':
+      return <svg width={size} height={size} viewBox="0 0 16 16" className="flex-shrink-0"><polygon points="4,0 16,0 12,16 0,16" fill="white" stroke={stroke} strokeWidth="1.5" /></svg>
+    case 'diamond':
+      return <svg width={size} height={size} viewBox="0 0 16 16" className="flex-shrink-0"><polygon points="8,0 16,8 8,16 0,8" fill="white" stroke={stroke} strokeWidth="1.5" /></svg>
+    case 'triangle':
+      return <svg width={size} height={size} viewBox="0 0 16 16" className="flex-shrink-0"><polygon points="8,1 15,15 1,15" fill="#fff7ed" stroke={stroke} strokeWidth="1.5" /></svg>
+    default:
+      return <svg width={size} height={size} viewBox="0 0 16 16" className="flex-shrink-0"><rect x="1" y="3" width="14" height="10" rx="2" fill="white" stroke={stroke} strokeWidth="1.5" /></svg>
+  }
 }
