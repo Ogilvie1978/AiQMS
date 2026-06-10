@@ -23,6 +23,7 @@ type Afvigelse = {
   capa_deadline: string
   capa_ansvarlig: string
   lukket_dato: string
+  forebyggelse: string
   created_at: string
 }
 
@@ -71,6 +72,7 @@ const emptyForm = {
   capa_deadline: '',
   capa_ansvarlig: '',
   lukket_dato: '',
+  forebyggelse: '',
 }
 
 export default function CapaPage() {
@@ -192,10 +194,11 @@ export default function CapaPage() {
         opdaget_dato: form.opdaget_dato || null,
         capa_deadline: form.capa_deadline || null,
         lukket_dato: form.lukket_dato || null,
+        forebyggelse: form.forebyggelse || null,
         updated_at: new Date().toISOString(),
       }).eq('id', selected.id)
     } else {
-      await supabase.from('afvigelser').insert({ ...form, user_id: user.id, opdaget_dato: form.opdaget_dato || null, capa_deadline: form.capa_deadline || null, lukket_dato: form.lukket_dato || null })
+      await supabase.from('afvigelser').insert({ ...form, user_id: user.id, opdaget_dato: form.opdaget_dato || null, capa_deadline: form.capa_deadline || null, lukket_dato: form.lukket_dato || null, forebyggelse: form.forebyggelse || null })
     }
     setSaving(false)
     setShowForm(false)
@@ -220,6 +223,7 @@ export default function CapaPage() {
       capa_deadline: a.capa_deadline || '',
       capa_ansvarlig: a.capa_ansvarlig || '',
       lukket_dato: a.lukket_dato || '',
+      forebyggelse: a.forebyggelse || '',
     })
     setViewItem(null)
     setShowForm(true)
@@ -555,6 +559,19 @@ export default function CapaPage() {
                   </div>
                 </div>
               </div>
+
+              {/* FOREBYGGELSE */}
+              <div className="border border-emerald-100 rounded-xl p-4 bg-emerald-50">
+                <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-3">Forebyggelse</p>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Forebyggende handling</label>
+                  <textarea value={form.forebyggelse} onChange={e => setForm(f => ({ ...f, forebyggelse: e.target.value }))}
+                    placeholder="Beskriv hvad der gøres for at forhindre at lignende afvigelser opstår fremover..."
+                    rows={3}
+                    className="w-full px-3 py-2 border border-emerald-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-none bg-white" />
+                </div>
+              </div>
+
               {form.status === 'Lukket' && (
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Lukket dato</label>
