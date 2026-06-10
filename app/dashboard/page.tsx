@@ -4,37 +4,52 @@ import { useEffect, useState } from 'react'
 import { createClient } from '../lib/supabase'
 import { useRouter } from 'next/navigation'
 
-const modules = [
-  { num: '01', title: 'Flowdiagrammer', desc: 'Administrer produktionsflows', href: '/dashboard/flows', color: 'bg-blue-50 border-blue-100', icon: '🔄', count: '0 flows' },
-  { num: '02', title: 'Risikoanalyse', desc: 'HACCP og CCP-styring', href: '/dashboard/haccp', color: 'bg-purple-50 border-purple-100', icon: '⚠️', count: '0 analyser' },
-  { num: '03', title: 'Dokumentstyring', desc: 'SOP\'er og arbejdsinstruktioner', href: '/dashboard/dokumenter', color: 'bg-amber-50 border-amber-100', icon: '📄', count: '0 dokumenter' },
-  { num: '04', title: 'Afvigelser & CAPA', desc: 'Registrer og spor afvigelser', href: '/dashboard/capa', color: 'bg-red-50 border-red-100', icon: '🔧', count: '0 åbne' },
-  { num: '05', title: 'Management Review', desc: 'Ledelsesgennemgang', href: '/dashboard/review', color: 'bg-green-50 border-green-100', icon: '📊', count: '0 reviews' },
-  { num: '06', title: 'AI Audit-assistent', desc: 'Audit-readiness og gaps', href: '/dashboard/audit', color: 'bg-emerald-50 border-emerald-100', icon: '🤖', count: 'Klar' },
-]
-
-const kpis = [
-  { label: 'Audit-score', value: '—', sub: 'Ingen data endnu', color: 'text-gray-400' },
-  { label: 'Åbne afvigelser', value: '0', sub: 'Ingen åbne', color: 'text-emerald-600' },
-  { label: 'Udløbne dokumenter', value: '0', sub: 'Alt er opdateret', color: 'text-emerald-600' },
-  { label: 'Åbne CAPA\'er', value: '0', sub: 'Ingen åbne', color: 'text-emerald-600' },
+const MODULES = [
+  { num: '01', title: 'Flowdiagrammer', desc: 'Administrer produktionsflows', href: '/dashboard/flows', color: 'bg-blue-50 border-blue-100', icon: '🔄', countKey: 'flows' },
+  { num: '02', title: 'Risikoanalyse', desc: 'HACCP og CCP-styring', href: '/dashboard/haccp', color: 'bg-purple-50 border-purple-100', icon: '⚠️', countKey: 'haccp' },
+  { num: '03', title: 'Dokumentstyring', desc: "SOP'er og arbejdsinstruktioner", href: '/dashboard/dokumenter', color: 'bg-amber-50 border-amber-100', icon: '📄', countKey: 'docs' },
+  { num: '04', title: 'Afvigelser & CAPA', desc: 'Registrer og spor afvigelser', href: '/dashboard/capa', color: 'bg-red-50 border-red-100', icon: '🔧', countKey: 'capa' },
+  { num: '05', title: 'Management Review', desc: 'Ledelsesgennemgang', href: '/dashboard/review', color: 'bg-green-50 border-green-100', icon: '📊', countKey: 'review' },
+  { num: '06', title: 'Audit', desc: 'Planlæg og gennemfør audits', href: '/dashboard/audit', color: 'bg-slate-50 border-slate-100', icon: '🔍', countKey: 'audit' },
 ]
 
 export default function Dashboard() {
   const [user, setUser] = useState<{ email?: string } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [flowCount, setFlowCount] = useState(0)
+  const [capaCount, setCapaCount] = useState(0)
+  const [capaAaben, setCapaAaben] = useState(0)
+  const [docCount, setDocCount] = useState(0)
+  const [haccpCount, setHaccpCount] = useState(0)
+  const [reviewCount, setReviewCount] = useState(0)
+  const [auditCount, setAuditCount] = useState(0)
   const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/login')
-      } else {
-        setUser(user)
-        setLoading(false)
-      }
+      if (!user) { router.push('/login'); return }
+      setUser(user)
+
+      const [flows, capa, capaAab, docs, haccp, reviews, audits] = await Promise.all([
+        supabase.from('flows').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('afvigelser').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('afvigelser').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'Åben'),
+        supabase.from('dokumenter').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('haccp_analyser').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('management_reviews').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('audits').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+      ])
+
+      setFlowCount(flows.count || 0)
+      setCapaCount(capa.count || 0)
+      setCapaAaben(capaAab.count || 0)
+      setDocCount(docs.count || 0)
+      setHaccpCount(haccp.count || 0)
+      setReviewCount(reviews.count || 0)
+      setAuditCount(audits.count || 0)
+      setLoading(false)
     }
     getUser()
   }, [])
@@ -43,6 +58,23 @@ export default function Dashboard() {
     await supabase.auth.signOut()
     router.push('/login')
   }
+
+  const getCount = (countKey: string) => {
+    if (countKey === 'flows') return `${flowCount} flow${flowCount !== 1 ? 's' : ''}`
+    if (countKey === 'capa') return `${capaCount} total · ${capaAaben} åbne`
+    if (countKey === 'docs') return `${docCount} dokument${docCount !== 1 ? 'er' : ''}`
+    if (countKey === 'haccp') return `${haccpCount} analyse${haccpCount !== 1 ? 'r' : ''}`
+    if (countKey === 'review') return `${reviewCount} review${reviewCount !== 1 ? 's' : ''}`
+    if (countKey === 'audit') return `${auditCount} audit${auditCount !== 1 ? 's' : ''}`
+    return '0'
+  }
+
+  const kpis = [
+    { label: 'Åbne afvigelser', value: String(capaAaben), sub: capaAaben === 0 ? 'Ingen åbne' : 'Kræver handling', color: capaAaben === 0 ? 'text-emerald-600' : 'text-red-500' },
+    { label: 'Dokumenter', value: String(docCount), sub: docCount === 0 ? 'Ingen endnu' : 'I systemet', color: 'text-gray-700' },
+    { label: 'Flows', value: String(flowCount), sub: flowCount === 0 ? 'Ingen endnu' : 'Dokumenteret', color: 'text-gray-700' },
+    { label: 'HACCP-analyser', value: String(haccpCount), sub: haccpCount === 0 ? 'Ingen endnu' : 'Gennemført', color: 'text-gray-700' },
+  ]
 
   if (loading) {
     return (
@@ -64,8 +96,10 @@ export default function Dashboard() {
           <div className="hidden md:flex items-center gap-4">
             <a href="/dashboard" className="text-xs font-medium text-gray-900 border-b-2 border-emerald-500 pb-0.5">Overblik</a>
             <a href="/dashboard/flows" className="text-xs text-gray-400 hover:text-gray-700">Flows</a>
+            <a href="/dashboard/haccp" className="text-xs text-gray-400 hover:text-gray-700">HACCP</a>
             <a href="/dashboard/capa" className="text-xs text-gray-400 hover:text-gray-700">Afvigelser</a>
             <a href="/dashboard/dokumenter" className="text-xs text-gray-400 hover:text-gray-700">Dokumenter</a>
+            <a href="/dashboard/review" className="text-xs text-gray-400 hover:text-gray-700">Review</a>
             <a href="/dashboard/audit" className="text-xs text-gray-400 hover:text-gray-700">Audit</a>
           </div>
         </div>
@@ -89,12 +123,6 @@ export default function Dashboard() {
             <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-1">Overblik</h1>
             <p className="text-sm text-gray-400">Velkommen til dit QMS dashboard</p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-              <span className="text-xs font-medium text-emerald-700">AI Audit-assistent aktiv</span>
-            </div>
-          </div>
         </div>
 
         {/* KPI CARDS */}
@@ -108,25 +136,11 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* AI BANNER */}
-        <div className="bg-slate-800 rounded-xl p-5 mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-lg">🤖</div>
-            <div>
-              <div className="text-sm font-medium text-white mb-0.5">AI Audit-assistent</div>
-              <div className="text-xs text-slate-400">Opret dit første flowdiagram for at aktivere AI-analyse og audit-scoring</div>
-            </div>
-          </div>
-          <a href="/dashboard/flows" className="text-xs px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-400 transition-colors font-medium whitespace-nowrap">
-            Kom i gang →
-          </a>
-        </div>
-
         {/* MODULES */}
         <div className="mb-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-4">Moduler</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {modules.map((mod) => (
+            {MODULES.map((mod) => (
               <a
                 key={mod.num}
                 href={mod.href}
@@ -139,7 +153,7 @@ export default function Dashboard() {
                 <h3 className="text-sm font-semibold text-gray-800 mb-1">{mod.title}</h3>
                 <p className="text-xs text-gray-500 mb-3">{mod.desc}</p>
                 <div className="text-xs font-medium text-gray-400 bg-white/60 rounded-md px-2 py-1 inline-block">
-                  {mod.count}
+                  {getCount(mod.countKey)}
                 </div>
               </a>
             ))}
