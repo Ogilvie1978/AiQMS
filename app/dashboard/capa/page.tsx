@@ -189,10 +189,13 @@ export default function CapaPage() {
     if (selected) {
       await supabase.from('afvigelser').update({
         ...form,
+        opdaget_dato: form.opdaget_dato || null,
+        capa_deadline: form.capa_deadline || null,
+        lukket_dato: form.lukket_dato || null,
         updated_at: new Date().toISOString(),
       }).eq('id', selected.id)
     } else {
-      await supabase.from('afvigelser').insert({ ...form, user_id: user.id })
+      await supabase.from('afvigelser').insert({ ...form, user_id: user.id, opdaget_dato: form.opdaget_dato || null, capa_deadline: form.capa_deadline || null, lukket_dato: form.lukket_dato || null })
     }
     setSaving(false)
     setShowForm(false)
