@@ -106,6 +106,7 @@ function renderShape(node: FlowNode, isSelected: boolean, isConnecting: boolean)
       ))}
     </g>
   )
+  if (!cfg) return <><rect width={NODE_W} height={NODE_H} rx="6" fill="#f9fafb" stroke="#9ca3af" strokeWidth="1.5" /><text x={NODE_W/2} y={NODE_H/2} textAnchor="middle" dominantBaseline="middle" fontSize="11" fill="#6b7280">{node.label.slice(0,12)}</text></>
   switch (cfg.shape) {
     case 'circle':
       return <><ellipse cx={NODE_W / 2} cy={NODE_H / 2} rx={NODE_W / 2 - 1} ry={NODE_H / 2 - 1} fill={cfg.fill} stroke={strokeColor} strokeWidth={strokeWidth} filter={filter} />{textEls}</>
@@ -181,7 +182,7 @@ function Legend() {
         const y = i * 32 + 22
         let shapeEl
         if (item.shape === 'circle') shapeEl = <ellipse cx={LW/2} cy={LH/2} rx={LW/2-1} ry={LH/2-1} fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
-        else if (item.shape === 'parallelogram') shapeEl = <polygon points={`5,0 ${LW},0 ${LW-5},${LH} 0,${LH}`} fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
+        else if (item.shape === 'parallelogram') shapeEl = <polygon points={`6,0 ${LW},0 ${LW-6},${LH} 0,${LH}`} fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
         else if (item.shape === 'diamond') shapeEl = <polygon points={`${LW/2},0 ${LW},${LH/2} ${LW/2},${LH} 0,${LH/2}`} fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
         else if (item.shape === 'triangle') shapeEl = <polygon points={`${LW/2},2 ${LW-2},${LH-2} 2,${LH-2}`} fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
         else shapeEl = <rect width={LW} height={LH} rx="3" fill={item.fill} stroke={item.stroke} strokeWidth="1.5" />
@@ -583,7 +584,7 @@ export default function FlowsPage() {
               <div className="text-xs px-3 py-2 rounded-lg border font-medium mb-3 flex items-center gap-2"
                 style={{ borderColor: NODE_CONFIG[selectedNode.type].stroke, color: NODE_CONFIG[selectedNode.type].textColor }}>
                 <ShapeIcon type={selectedNode.type} />
-                {selectedNode.label}
+                {NODE_CONFIG[selectedNode.type].label}
               </div>
               <div className="flex flex-col gap-1.5">
                 <button onClick={() => setConnecting(selected)}
