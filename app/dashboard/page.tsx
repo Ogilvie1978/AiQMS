@@ -109,7 +109,7 @@ export default function Dashboard() {
             <a href="/dashboard/review" className="text-xs text-gray-400 hover:text-gray-700">Review</a>
             <a href="/dashboard/audit" className="text-xs text-gray-400 hover:text-gray-700">Audit</a>
             <a href="/dashboard/leverandoerer" className="text-xs text-gray-400 hover:text-gray-700">Leverandører</a>
-            <a href="/dashboard/indstillinger" className="text-xs text-gray-400 hover:text-gray-700">⚙️</a>
+            <a href="/dashboard/indstillinger" className="text-xs text-gray-400 hover:text-gray-700">Profil</a>
           </div>
         </div>
         <div className="flex items-center gap-3">
