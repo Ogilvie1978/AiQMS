@@ -198,19 +198,19 @@ Svar KUN med JSON (ingen markdown):
     const prompt = `Du er en ekspert i ${standard} standarden for fødevaresikkerhed.
 
 Generer de vigtigste krav fra ${standard} standarden som en QMS-konsulent ville fokusere på for en dansk fødevarevirksomhed.
-Inkluder de 20 vigtigste krav på tværs af kapitlerne.
+Inkluder de 15 vigtigste krav på tværs af kapitlerne. Hold beskrivelser meget korte (max 10 ord).
 
 Svar KUN med JSON array (ingen markdown, ingen forklaring):
 [
   {
     "standard": "${standard}",
     "version": "latest",
-    "kapitel": "<kapitel navn>",
+    "kapitel": "<kapitel>",
     "kravnummer": "<f.eks. 3.1.1>",
-    "titel": "<kort titel>",
-    "beskrivelse": "<kort beskrivelse af kravet>",
-    "dokument_type": "<hvilken type dokument der typisk kræves, f.eks. SOP, Procedure, Politik>",
-    "kritikalitet": "Krav"|"Anbefaling"
+    "titel": "<kort titel max 8 ord>",
+    "beskrivelse": "<max 10 ord>",
+    "dokument_type": "<SOP|Procedure|Politik|Andet>",
+    "kritikalitet": "Krav"
   }
 ]`
 
@@ -220,12 +220,13 @@ Svar KUN med JSON array (ingen markdown, ingen forklaring):
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
-          max_tokens: 4000,
+          max_tokens: 2000,
           messages: [{ role: 'user', content: prompt }],
         }),
       })
       const data = await response.json()
       const text = data.content?.[0]?.text || ''
+      if (!text) throw new Error('Empty response from AI')
       const clean = text.replace(/```json|```/g, '').trim()
       const parsed = JSON.parse(clean)
 
