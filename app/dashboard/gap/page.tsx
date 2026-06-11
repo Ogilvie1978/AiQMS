@@ -79,7 +79,6 @@ export default function GapAnalysePage() {
   const [gemmerKrav, setGemmerKrav] = useState(false)
   const [genererLoading, setGenererLoading] = useState(false)
   const [draftLoading, setDraftLoading] = useState<string | null>(null)
-  const [draftModal, setDraftModal] = useState<{ krav: GapItem; indhold: string } | null>(null)
 
   const router = useRouter()
   const supabase = createClient()
@@ -249,21 +248,23 @@ Svar KUN med JSON array (ingen markdown, ingen forklaring):
 
   const genererDraft = async (gap: GapItem) => {
     setDraftLoading(gap.kravnummer)
-    const vNavn = 'virksomheden'
-    const prompt = `Du er en QMS-ekspert. Lav et professionelt dokument-udkast for følgende ${resultat?.standard} krav:
 
+    const prompt = `Du er en QMS-ekspert specialiseret i ${resultat?.standard} for fødevarevirksomheder.
+
+Lav et komplet professionelt dokument-udkast på dansk for følgende krav:
 Krav ${gap.kravnummer}: ${gap.titel}
 Kapitel: ${gap.kapitel}
-Anbefaling: ${gap.anbefaling}
 
-Lav et komplet dokumentudkast på dansk med:
-- Formål
-- Anvendelsesområde  
-- Ansvar
-- Procedure/indhold (tilpasset kravet)
-- Dokumentation
+Strukturér dokumentet med disse sektioner i HTML-format:
+<h2>1. Formål</h2>
+<h2>2. Anvendelsesområde</h2>
+<h2>3. Ansvar</h2>
+<h2>4. Procedure</h2>
+<h2>5. Dokumentation og registrering</h2>
+<h2>6. Referencer</h2>
 
-Hold det konkret og praktisk for en dansk fødevarevirksomhed. Max 400 ord.`
+Brug <p>, <ul>, <ol>, <li> og <strong> tags. Gør indholdet konkret og praktisk.
+Svar KUN med HTML-indholdet uden html/body tags.`
 
     try {
       const response = await fetch('/api/ai', {
@@ -276,10 +277,29 @@ Hold det konkret og praktisk for en dansk fødevarevirksomhed. Max 400 ord.`
         }),
       })
       const data = await response.json()
-      const text = data.content?.[0]?.text || ''
-      if (text) setDraftModal({ krav: gap, indhold: text })
+      if (data.error) throw new Error(JSON.stringify(data.error))
+      const htmlIndhold = data.content?.[0]?.text || ''
+      if (!htmlIndhold) throw new Error('Tomt svar')
+
+      // Gem direkte som dokument i Supabase
+      const { data: nytDok, error } = await supabase.from('dokumenter').insert({
+        user_id: user!.id,
+        titel: `${gap.kravnummer} — ${gap.titel}`,
+        indhold: htmlIndhold,
+        type: 'SOP',
+        status: 'Udkast',
+        version: '1.0',
+        beskrivelse: `Auto-genereret udkast baseret på ${resultat?.standard} krav ${gap.kravnummer}`,
+      }).select().single()
+
+      if (error) throw new Error(error.message)
+
+      // Åbn direkte i dokumenteditoren
+      window.open(`/dashboard/dokumenter/ny?id=${nytDok.id}`, '_blank')
+
     } catch (err) {
       console.error('Draft fejl:', err)
+      alert('Fejl ved generering af udkast: ' + String(err))
     }
     setDraftLoading(null)
   }
@@ -431,9 +451,9 @@ Hold det konkret og praktisk for en dansk fødevarevirksomhed. Max 400 ord.`
                               disabled={draftLoading === gap.kravnummer}
                               className="text-xs px-3 py-1.5 border border-indigo-200 text-indigo-600 rounded-lg hover:bg-indigo-50 disabled:opacity-50 flex items-center gap-1.5">
                               {draftLoading === gap.kravnummer ? (
-                                <><span className="animate-spin inline-block">⏳</span> Genererer udkast...</>
+                                <><span className="animate-spin inline-block">⏳</span> Genererer og åbner...</>
                               ) : (
-                                <>✍️ Lav dokument-udkast</>
+                                <>✍️ Opret dokument-udkast</>
                               )}
                             </button>
                           )}
@@ -445,44 +465,7 @@ Hold det konkret og praktisk for en dansk fødevarevirksomhed. Max 400 ord.`
               </div>
             )}
 
-            {/* DRAFT MODAL */}
-      {draftModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setDraftModal(null)}>
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm"/>
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white">
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">✍️ Dokument-udkast</h2>
-                <p className="text-xs text-gray-400 mt-0.5">{draftModal.krav.kravnummer} · {draftModal.krav.titel}</p>
-              </div>
-              <button onClick={() => setDraftModal(null)} className="text-gray-400 hover:text-gray-600">✕</button>
-            </div>
-            <div className="px-6 py-5">
-              <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed font-mono text-xs">
-                {draftModal.indhold}
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-between sticky bottom-0 bg-white">
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(draftModal.indhold)
-                  alert('Kopieret til udklipsholder!')
-                }}
-                className="text-xs px-4 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
-                📋 Kopier tekst
-              </button>
-              <div className="flex gap-2">
-                <button onClick={() => setDraftModal(null)} className="text-xs px-4 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">Luk</button>
-                <a href="/dashboard/dokumenter/ny" className="text-xs px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700">
-                  Opret som dokument →
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!resultat && !analyserer && (
+            {!resultat && !analyserer && (
               <div className="bg-white border border-gray-100 rounded-xl p-12 text-center">
                 <div className="text-4xl mb-3">🔍</div>
                 <p className="text-sm font-medium text-gray-400 mb-1">Ingen analyse endnu</p>
