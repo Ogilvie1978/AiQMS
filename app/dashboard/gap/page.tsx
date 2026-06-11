@@ -159,7 +159,7 @@ Svar KUN med JSON (ingen markdown):
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-opus-4-6',
           max_tokens: 4000,
           messages: [{ role: 'user', content: prompt }],
         }),
@@ -219,7 +219,7 @@ Svar KUN med JSON array (ingen markdown, ingen forklaring):
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-opus-4-6',
           max_tokens: 2000,
           messages: [{ role: 'user', content: prompt }],
         }),
