@@ -225,8 +225,10 @@ Svar KUN med JSON array (ingen markdown, ingen forklaring):
         }),
       })
       const data = await response.json()
+      console.log('AI response:', JSON.stringify(data).slice(0, 500))
+      if (data.error) throw new Error(JSON.stringify(data.error))
       const text = data.content?.[0]?.text || ''
-      if (!text) throw new Error('Empty response from AI')
+      if (!text) throw new Error('Empty response: ' + JSON.stringify(data).slice(0, 200))
       const clean = text.replace(/```json|```/g, '').trim()
       const parsed = JSON.parse(clean)
 
