@@ -12,7 +12,8 @@ const MODULES = [
   { num: '05', title: 'Management Review', desc: 'Ledelsesgennemgang', href: '/dashboard/review', color: 'bg-green-50 border-green-100', icon: '📊', countKey: 'review' },
   { num: '06', title: 'Audit', desc: 'Planlæg og gennemfør audits', href: '/dashboard/audit', color: 'bg-slate-50 border-slate-100', icon: '🔍', countKey: 'audit' },
   { num: '07', title: 'Leverandørstyring', desc: 'Godkendelse og evaluering', href: '/dashboard/leverandoerer', color: 'bg-teal-50 border-teal-100', icon: '🏭', countKey: 'leverandoerer' },
-  { num: '08', title: 'Indstillinger', desc: 'Virksomhedsprofil og konto', href: '/dashboard/indstillinger', color: 'bg-gray-50 border-gray-100', icon: '⚙️', countKey: 'indstillinger' },
+  { num: '08', title: 'Gap-analyse', desc: 'IFS, BRC, FSSC & ISO 22000', href: '/dashboard/gap', color: 'bg-indigo-50 border-indigo-100', icon: '🎯', countKey: 'gap' },
+  { num: '09', title: 'Indstillinger', desc: 'Virksomhedsprofil og konto', href: '/dashboard/indstillinger', color: 'bg-gray-50 border-gray-100', icon: '⚙️', countKey: 'indstillinger' },
 ]
 
 export default function Dashboard() {
@@ -26,6 +27,7 @@ export default function Dashboard() {
   const [reviewCount, setReviewCount] = useState(0)
   const [auditCount, setAuditCount] = useState(0)
   const [leverandoerCount, setLeverandoerCount] = useState(0)
+  const [gapKravCount, setGapKravCount] = useState(0)
   const router = useRouter()
   const supabase = createClient()
 
@@ -35,7 +37,7 @@ export default function Dashboard() {
       if (!user) { router.push('/login'); return }
       setUser(user)
 
-      const [flows, capa, capaAab, docs, haccp, reviews, audits, lev] = await Promise.all([
+      const [flows, capa, capaAab, docs, haccp, reviews, audits, lev, gapKrav] = await Promise.all([
         supabase.from('flows').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('afvigelser').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('afvigelser').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'Åben'),
@@ -44,6 +46,7 @@ export default function Dashboard() {
         supabase.from('management_reviews').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('audits').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('leverandoerer').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('standard_krav').select('*', { count: 'exact', head: true }),
       ])
 
       setFlowCount(flows.count || 0)
@@ -54,6 +57,7 @@ export default function Dashboard() {
       setReviewCount(reviews.count || 0)
       setAuditCount(audits.count || 0)
       setLeverandoerCount(lev.count || 0)
+      setGapKravCount(gapKrav.count || 0)
       setLoading(false)
     }
     getUser()
@@ -72,6 +76,7 @@ export default function Dashboard() {
     if (countKey === 'review') return `${reviewCount} review${reviewCount !== 1 ? 's' : ''}`
     if (countKey === 'audit') return `${auditCount} audit${auditCount !== 1 ? 's' : ''}`
     if (countKey === 'leverandoerer') return `${leverandoerCount} leverandør${leverandoerCount !== 1 ? 'er' : ''}`
+    if (countKey === 'gap') return `${gapKravCount} krav i database`
     if (countKey === 'indstillinger') return 'Virksomhedsprofil'
     return '—'
   }
@@ -80,7 +85,7 @@ export default function Dashboard() {
     { label: 'Åbne afvigelser', value: String(capaAaben), sub: capaAaben === 0 ? 'Ingen åbne' : 'Kræver handling', color: capaAaben === 0 ? 'text-emerald-600' : 'text-red-500' },
     { label: 'Dokumenter', value: String(docCount), sub: docCount === 0 ? 'Ingen endnu' : 'I systemet', color: 'text-gray-700' },
     { label: 'Leverandører', value: String(leverandoerCount), sub: leverandoerCount === 0 ? 'Ingen endnu' : 'Registreret', color: 'text-gray-700' },
-    { label: 'Audits', value: String(auditCount), sub: auditCount === 0 ? 'Ingen endnu' : 'I systemet', color: 'text-gray-700' },
+    { label: 'Gap-krav', value: String(gapKravCount), sub: gapKravCount === 0 ? 'Ingen krav endnu' : 'Krav i database', color: 'text-indigo-600' },
   ]
 
   if (loading) {
@@ -109,6 +114,7 @@ export default function Dashboard() {
             <a href="/dashboard/review" className="text-xs text-gray-400 hover:text-gray-700">Review</a>
             <a href="/dashboard/audit" className="text-xs text-gray-400 hover:text-gray-700">Audit</a>
             <a href="/dashboard/leverandoerer" className="text-xs text-gray-400 hover:text-gray-700">Leverandører</a>
+            <a href="/dashboard/gap" className="text-xs text-gray-400 hover:text-gray-700">Gap-analyse</a>
             <a href="/dashboard/indstillinger" className="text-xs text-gray-400 hover:text-gray-700">Profil</a>
           </div>
         </div>
@@ -126,7 +132,6 @@ export default function Dashboard() {
       {/* MAIN */}
       <main className="max-w-6xl mx-auto px-6 py-8">
 
-        {/* HEADER */}
         <div className="mb-8">
           <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-1">Overblik</h1>
           <p className="text-sm text-gray-400">Velkommen til dit QMS dashboard</p>
