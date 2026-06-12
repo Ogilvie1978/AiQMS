@@ -38,6 +38,17 @@ type GapResultat = {
   gaps: GapItem[]
 }
 
+type GemtAnalyse = {
+  id: string
+  standard: string
+  samlet_score: number
+  opfyldt: number
+  mangler: number
+  delvist: number
+  gaps: GapItem[]
+  analyseret_dato: string
+}
+
 // ─── Hjælpefunktioner ─────────────────────────────────────────────────────────
 
 function safeParseJSON(text: string): unknown {
@@ -87,13 +98,16 @@ export default function GapAnalysePage() {
 
   // Analyse state
   const [valgtStandard, setValgtStandard] = useState<Standard>('FSSC 22000')
-  const [dokumenter, setDokumenter]       = useState<{ id: string; titel: string; type: string; status: string }[]>([])
+  const [dokumenter, setDokumenter]       = useState<{ id: string; titel: string; type: string; status: string; standard_referencer: string[] }[]>([])
   const [alleKrav, setAlleKrav]           = useState<StandardKrav[]>([])
   const [analyserer, setAnalyserer]       = useState(false)
   const [resultat, setResultat]           = useState<GapResultat | null>(null)
   const [filterStatus, setFilterStatus]   = useState<string>('Alle')
   const [fejl, setFejl]                   = useState('')
   const [draftLoading, setDraftLoading]   = useState<string | null>(null)
+  const [gemteAnalyser, setGemteAnalyser] = useState<GemtAnalyse[]>([])
+  const [gemmer, setGemmer]               = useState(false)
+  const [visHistorik, setVisHistorik]     = useState(false)
 
   // Kravdatabase state
   const [kravFane, setKravFane]           = useState<Standard>('FSSC 22000')
@@ -122,6 +136,16 @@ export default function GapAnalysePage() {
     setAlleKrav(data || [])
   }, [supabase])
 
+  const hentGemteAnalyser = useCallback(async (uid: string) => {
+    const { data } = await supabase
+      .from('gap_analyser')
+      .select('*')
+      .eq('user_id', uid)
+      .order('analyseret_dato', { ascending: false })
+      .limit(10)
+    setGemteAnalyser((data || []) as GemtAnalyse[])
+  }, [supabase])
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -129,10 +153,11 @@ export default function GapAnalysePage() {
       setUserId(user.id)
       const { data } = await supabase
         .from('dokumenter')
-        .select('id, titel, type, status')
+        .select('id, titel, type, status, standard_referencer')
         .eq('user_id', user.id)
       setDokumenter(data || [])
       await hentAlleKrav()
+      await hentGemteAnalyser(user.id)
       setLoading(false)
     }
     init()
@@ -157,45 +182,97 @@ export default function GapAnalysePage() {
       return
     }
 
-    const dokListe = dokumenter.length > 0
-      ? dokumenter.map(d => `- ${d.titel} (${d.type}, ${d.status})`).join('\n')
-      : 'Ingen dokumenter registreret endnu'
-
-    const kapitler = [...new Set(kravListe.map((k: StandardKrav) => k.kapitel))].join(', ')
-
-    const prompt = `Du er en certificeret ${valgtStandard} auditor. Lav gap-analyse for en dansk foedevarevirksomhed.
-
-VIRKSOMHEDENS DOKUMENTER (${dokumenter.length} total):
-${dokListe}
-
-STANDARD: ${valgtStandard} med ${kravListe.length} krav fordelt paa: ${kapitler}
-
-Find de 10-12 vigtigste mangler baseret paa dokumenterne. Estimer opfyldt/mangler/delvist procent.
-Returner KUN JSON uden markdown - max 12 gaps:
-{"samlet_score":45,"opfyldt":30,"mangler":50,"delvist":20,"gaps":[{"kravnummer":"2.5.3","titel":"Food defense plan","kapitel":"FSSC Tillaegskrav","status":"Mangler","begrundelse":"Ingen food defense dokumentation","anbefaling":"Udarbejd truselsvurdering og food defense plan"}]}`
-
-    try {
-      const res = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4000,
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(JSON.stringify(data.error))
-      const text = data.content?.[0]?.text || ''
-      if (!text) throw new Error('Tomt svar fra AI')
-      const parsed = safeParseJSON(text) as GapResultat
-      setResultat({ ...parsed, standard: valgtStandard })
-    } catch (err) {
-      console.error('Gap analyse fejl:', err)
-      setFejl('Fejl ved gap-analyse. Prøv igen.')
+    // Byg et set af alle kravnumre der er dækket af dokumenter
+    const daekkede = new Set<string>()
+    for (const dok of dokumenter) {
+      if (dok.standard_referencer && dok.status !== 'Udgået') {
+        for (const ref of dok.standard_referencer) {
+          daekkede.add(ref)
+        }
+      }
     }
 
+    // Direkte match: hvert krav er enten opfyldt eller mangler
+    const gaps: GapItem[] = []
+    let opfyldt = 0
+    let mangler = 0
+
+    for (const krav of kravListe) {
+      if (daekkede.has(krav.kravnummer)) {
+        opfyldt++
+        // Opfyldte krav vises kun i statistik, ikke i gap-listen
+      } else {
+        mangler++
+        // Find hvilket dokument der evt. delvist dækker (samme kapitel)
+        const delvistDok = dokumenter.find(d =>
+          d.standard_referencer?.some(r => r.startsWith(krav.kravnummer.split('.')[0]))
+        )
+        gaps.push({
+          kravnummer: krav.kravnummer,
+          titel: krav.titel,
+          kapitel: krav.kapitel,
+          status: delvistDok ? 'Delvist' : 'Mangler',
+          begrundelse: delvistDok
+            ? `Delvist dækket af "${delvistDok.titel}" men krav ${krav.kravnummer} er ikke direkte refereret`
+            : `Ingen dokumenter refererer til krav ${krav.kravnummer}`,
+          anbefaling: `Opret eller opdater et dokument og tilknyt krav ${krav.kravnummer} under Standard referencer`,
+        })
+      }
+    }
+
+    const delvist = gaps.filter(g => g.status === 'Delvist').length
+    const manglerKun = gaps.filter(g => g.status === 'Mangler').length
+    const samlet_score = Math.round((opfyldt / kravListe.length) * 100)
+
+    setResultat({
+      standard: valgtStandard,
+      samlet_score,
+      opfyldt,
+      mangler: manglerKun,
+      delvist,
+      gaps,
+    })
+
     setAnalyserer(false)
+  }
+
+  // ─── Gem analyse ─────────────────────────────────────────────────────────
+
+  const gemAnalyse = async () => {
+    if (!resultat || !userId) return
+    setGemmer(true)
+    const { error } = await supabase.from('gap_analyser').insert({
+      user_id: userId,
+      standard: resultat.standard,
+      samlet_score: resultat.samlet_score,
+      opfyldt: resultat.opfyldt,
+      mangler: resultat.mangler,
+      delvist: resultat.delvist,
+      gaps: resultat.gaps,
+      analyseret_dato: new Date().toISOString(),
+    })
+    if (!error) await hentGemteAnalyser(userId)
+    setGemmer(false)
+  }
+
+  const indlaesAnalyse = (analyse: GemtAnalyse) => {
+    setResultat({
+      standard: analyse.standard,
+      samlet_score: analyse.samlet_score,
+      opfyldt: analyse.opfyldt,
+      mangler: analyse.mangler,
+      delvist: analyse.delvist,
+      gaps: analyse.gaps,
+    })
+    setValgtStandard(analyse.standard as Standard)
+    setVisHistorik(false)
+    setFilterStatus('Alle')
+  }
+
+  const sletAnalyse = async (id: string) => {
+    if (!confirm('Slet denne analyse?')) return
+    await supabase.from('gap_analyser').delete().eq('id', id)
+    if (userId) await hentGemteAnalyser(userId)
   }
 
   // ─── Opret dokument-udkast ────────────────────────────────────────────────
