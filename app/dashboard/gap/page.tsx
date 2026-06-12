@@ -161,7 +161,7 @@ export default function GapAnalysePage() {
       ? dokumenter.map(d => `- ${d.titel} (${d.type}, ${d.status})`).join('\n')
       : 'Ingen dokumenter registreret endnu'
 
-    const kravTekst = kravListe.slice(0, 60).map(k =>
+    const kravTekst = kravListe.slice(0, 30).map(k =>
       `${k.kravnummer}: ${k.titel}`
     ).join('\n')
 
@@ -182,7 +182,7 @@ Returner KUN et JSON-objekt uden markdown eller forklaring:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 4000,
+          max_tokens: 8000,
           messages: [{ role: 'user', content: prompt }],
         }),
       })
