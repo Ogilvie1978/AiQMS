@@ -14,7 +14,7 @@ export async function GET() {
   const { data: virksomhed } = await supabase
     .from('virksomhed')
     .select('id')
-    .eq('owner_id', user.id)
+    .eq('user_id', user.id)
     .single()
 
   if (!virksomhed) return NextResponse.json({ error: 'Ingen virksomhed fundet' }, { status: 404 })
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
   const { data: virksomhed } = await supabase
     .from('virksomhed')
     .select('id')
-    .eq('owner_id', user.id)
+    .eq('user_id', user.id)
     .single()
 
   if (!virksomhed) return NextResponse.json({ error: 'Ingen virksomhed' }, { status: 404 })
