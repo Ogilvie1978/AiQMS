@@ -161,20 +161,18 @@ export default function GapAnalysePage() {
       ? dokumenter.map(d => `- ${d.titel} (${d.type}, ${d.status})`).join('\n')
       : 'Ingen dokumenter registreret endnu'
 
-    const kravTekst = kravListe.slice(0, 30).map(k =>
-      `${k.kravnummer}: ${k.titel}`
-    ).join('\n')
+    const kapitler = [...new Set(kravListe.map((k: StandardKrav) => k.kapitel))].join(', ')
 
-    const prompt = `Du er en certificeret ${valgtStandard} auditor. Analyser gap mellem virksomhedens dokumenter og standardens krav.
+    const prompt = `Du er en certificeret ${valgtStandard} auditor. Lav gap-analyse for en dansk foedevarevirksomhed.
 
 VIRKSOMHEDENS DOKUMENTER (${dokumenter.length} total):
 ${dokListe}
 
-${valgtStandard} KRAV (${kravListe.length} krav):
-${kravTekst}${kravListe.length > 60 ? `\n... og ${kravListe.length - 60} krav mere` : ''}
+STANDARD: ${valgtStandard} med ${kravListe.length} krav fordelt paa: ${kapitler}
 
-Returner KUN et JSON-objekt uden markdown eller forklaring:
-{"samlet_score":75,"opfyldt":10,"mangler":5,"delvist":3,"gaps":[{"kravnummer":"4.1","titel":"Kontekst","kapitel":"ISO 22000","status":"Opfyldt","begrundelse":"Dækket af eksisterende dokumenter","anbefaling":""},{"kravnummer":"5.2","titel":"Politik","kapitel":"ISO 22000","status":"Mangler","begrundelse":"Ingen politik fundet","anbefaling":"Opret en foedevaresikkerhedspolitik"}]}`
+Find de 10-12 vigtigste mangler baseret paa dokumenterne. Estimer opfyldt/mangler/delvist procent.
+Returner KUN JSON uden markdown - max 12 gaps:
+{"samlet_score":45,"opfyldt":30,"mangler":50,"delvist":20,"gaps":[{"kravnummer":"2.5.3","titel":"Food defense plan","kapitel":"FSSC Tillaegskrav","status":"Mangler","begrundelse":"Ingen food defense dokumentation","anbefaling":"Udarbejd truselsvurdering og food defense plan"}]}`
 
     try {
       const res = await fetch('/api/ai', {
@@ -182,7 +180,7 @@ Returner KUN et JSON-objekt uden markdown eller forklaring:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 8000,
+          max_tokens: 4000,
           messages: [{ role: 'user', content: prompt }],
         }),
       })
