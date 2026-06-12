@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createBrowserClient } from '@supabase/ssr'
 import { Plus, Pencil, Trash2, X, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 
 type Haendelse = {
@@ -60,7 +60,11 @@ function statusFarve(s: string) {
 }
 
 export default function HaendelseslogPage() {
-  const supabase = createClientComponentClient()
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
   const [data, setData] = useState<Haendelse[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
