@@ -13,7 +13,8 @@ const MODULES = [
   { num: '06', title: 'Audit', desc: 'Planlæg og gennemfør audits', href: '/dashboard/audit', color: 'bg-slate-50 border-slate-100', icon: '🔍', countKey: 'audit' },
   { num: '07', title: 'Leverandørstyring', desc: 'Godkendelse og evaluering', href: '/dashboard/leverandoerer', color: 'bg-teal-50 border-teal-100', icon: '🏭', countKey: 'leverandoerer' },
   { num: '08', title: 'Gap-analyse', desc: 'IFS, BRC, FSSC & ISO 22000', href: '/dashboard/gap', color: 'bg-indigo-50 border-indigo-100', icon: '🎯', countKey: 'gap' },
-  { num: '09', title: 'Indstillinger', desc: 'Virksomhedsprofil og konto', href: '/dashboard/indstillinger', color: 'bg-gray-50 border-gray-100', icon: '⚙️', countKey: 'indstillinger' },
+  { num: '09', title: 'Kompetencer', desc: 'Medarbejderkompetencer og uddannelse', href: '/dashboard/kompetencer', color: 'bg-cyan-50 border-cyan-100', icon: '🎓', countKey: 'kompetencer' },
+  { num: '10', title: 'Indstillinger', desc: 'Virksomhedsprofil og konto', href: '/dashboard/indstillinger', color: 'bg-gray-50 border-gray-100', icon: '⚙️', countKey: 'indstillinger' },
 ]
 
 export default function Dashboard() {
@@ -28,6 +29,7 @@ export default function Dashboard() {
   const [auditCount, setAuditCount] = useState(0)
   const [leverandoerCount, setLeverandoerCount] = useState(0)
   const [gapKravCount, setGapKravCount] = useState(0)
+  const [kompetencerCount, setKompetencerCount] = useState(0)
   const router = useRouter()
   const supabase = createClient()
 
@@ -37,7 +39,14 @@ export default function Dashboard() {
       if (!user) { router.push('/login'); return }
       setUser(user)
 
-      const [flows, capa, capaAab, docs, haccp, reviews, audits, lev, gapKrav] = await Promise.all([
+      // Hent virksomhed_id til medarbejder-count
+      const { data: virksomhed } = await supabase
+        .from('virksomhed')
+        .select('id')
+        .eq('user_id', user.id)
+        .single()
+
+      const [flows, capa, capaAab, docs, haccp, reviews, audits, lev, gapKrav, komp] = await Promise.all([
         supabase.from('flows').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('afvigelser').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('afvigelser').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'Åben'),
@@ -47,6 +56,9 @@ export default function Dashboard() {
         supabase.from('audits').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('leverandoerer').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('standard_krav').select('*', { count: 'exact', head: true }),
+        virksomhed
+          ? supabase.from('medarbejdere').select('*', { count: 'exact', head: true }).eq('virksomhed_id', virksomhed.id).eq('aktiv', true)
+          : Promise.resolve({ count: 0 }),
       ])
 
       setFlowCount(flows.count || 0)
@@ -58,6 +70,7 @@ export default function Dashboard() {
       setAuditCount(audits.count || 0)
       setLeverandoerCount(lev.count || 0)
       setGapKravCount(gapKrav.count || 0)
+      setKompetencerCount(komp.count || 0)
       setLoading(false)
     }
     getUser()
@@ -77,6 +90,7 @@ export default function Dashboard() {
     if (countKey === 'audit') return `${auditCount} audit${auditCount !== 1 ? 's' : ''}`
     if (countKey === 'leverandoerer') return `${leverandoerCount} leverandør${leverandoerCount !== 1 ? 'er' : ''}`
     if (countKey === 'gap') return `${gapKravCount} krav i database`
+    if (countKey === 'kompetencer') return `${kompetencerCount} medarbejder${kompetencerCount !== 1 ? 'e' : ''}`
     if (countKey === 'indstillinger') return 'Virksomhedsprofil'
     return '—'
   }
@@ -115,6 +129,7 @@ export default function Dashboard() {
             <a href="/dashboard/audit" className="text-xs text-gray-400 hover:text-gray-700">Audit</a>
             <a href="/dashboard/leverandoerer" className="text-xs text-gray-400 hover:text-gray-700">Leverandører</a>
             <a href="/dashboard/gap" className="text-xs text-gray-400 hover:text-gray-700">Gap-analyse</a>
+            <a href="/dashboard/kompetencer" className="text-xs text-gray-400 hover:text-gray-700">Kompetencer</a>
             <a href="/dashboard/indstillinger" className="text-xs text-gray-400 hover:text-gray-700">Profil</a>
           </div>
         </div>
