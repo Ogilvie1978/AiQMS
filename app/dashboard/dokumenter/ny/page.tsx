@@ -9,6 +9,14 @@ type Virksomhed = {
   postnr: string; by: string; telefon: string; email: string
 }
 
+type StandardKrav = {
+  id: string
+  standard: string
+  kravnummer: string
+  titel: string
+  kapitel: string
+}
+
 const SKABELONER = [
   {
     navn: 'Tom skabelon', icon: '📄',
@@ -117,6 +125,13 @@ function DokumentEditorInner() {
   const [showSkabeloner, setShowSkabeloner] = useState(false)
   const [dokId, setDokId] = useState<string | null>(null)
 
+  // Standard referencer
+  const [alleKrav, setAlleKrav] = useState<StandardKrav[]>([])
+  const [valgteReferencer, setValgteReferencer] = useState<string[]>([])
+  const [refSoeg, setRefSoeg] = useState('')
+  const [visRefPanel, setVisRefPanel] = useState(false)
+  const [valgtRefStandard, setValgtRefStandard] = useState<string>('FSSC 22000')
+
   const [meta, setMeta] = useState({
     type: 'SOP',
     status: 'Udkast',
@@ -142,6 +157,14 @@ function DokumentEditorInner() {
         .from('virksomhed').select('*').eq('user_id', user.id).maybeSingle()
       if (vData) setVirksomhed(vData)
 
+      // Hent alle krav til referencer
+      const { data: kravData } = await supabase
+        .from('standard_krav')
+        .select('id, standard, kravnummer, titel, kapitel')
+        .order('standard')
+        .order('kravnummer')
+      setAlleKrav(kravData || [])
+
       const id = searchParams.get('id')
       if (id) {
         const { data: dok } = await supabase
@@ -150,6 +173,7 @@ function DokumentEditorInner() {
           setDokId(dok.id)
           setTitel(dok.titel || '')
           setVersion(dok.version || '1.0')
+          setValgteReferencer(dok.standard_referencer || [])
           setMeta({
             type: dok.type || 'SOP',
             status: dok.status || 'Udkast',
@@ -190,6 +214,24 @@ function DokumentEditorInner() {
     if (editorRef.current) setIndhold(editorRef.current.innerHTML)
   }
 
+  const tilfoejReference = (kravnummer: string) => {
+    if (!valgteReferencer.includes(kravnummer)) {
+      setValgteReferencer(prev => [...prev, kravnummer])
+    }
+  }
+
+  const fjernReference = (kravnummer: string) => {
+    setValgteReferencer(prev => prev.filter(r => r !== kravnummer))
+  }
+
+  const filtredeKrav = alleKrav.filter(k => {
+    const matcherStandard = k.standard === valgtRefStandard
+    const matcherSoeg = !refSoeg || 
+      k.kravnummer.toLowerCase().includes(refSoeg.toLowerCase()) ||
+      k.titel.toLowerCase().includes(refSoeg.toLowerCase())
+    return matcherStandard && matcherSoeg
+  })
+
   const save = async () => {
     if (!titel.trim()) { setSaveError('Indtast venligst en dokumenttitel'); return }
     setSaveError('')
@@ -204,6 +246,7 @@ function DokumentEditorInner() {
       const nyVersion = `${parts[0]}.${parseInt(parts[1] || '0') + 1}`
       const { error } = await supabase.from('dokumenter').update({
         titel: titel.trim(), indhold: currentIndhold, version: nyVersion,
+        standard_referencer: valgteReferencer,
         ...meta, updated_at: new Date().toISOString()
       }).eq('id', dokId)
       if (error) { setSaveError('Fejl: ' + error.message); setSaving(false); return }
@@ -211,7 +254,7 @@ function DokumentEditorInner() {
     } else {
       const { data, error } = await supabase.from('dokumenter').insert({
         user_id: user.id, titel: titel.trim(), indhold: currentIndhold,
-        version: '1.0', ...meta
+        version: '1.0', standard_referencer: valgteReferencer, ...meta
       }).select().single()
       if (error) { setSaveError('Fejl: ' + error.message); setSaving(false); return }
       if (data) setDokId(data.id)
@@ -229,35 +272,36 @@ function DokumentEditorInner() {
     const vNavn = virksomhed?.navn || ''
     const vCvr = virksomhed?.cvr ? ` · CVR: ${virksomhed.cvr}` : ''
     const vAdresse = virksomhed?.adresse ? `${virksomhed.adresse}, ${virksomhed.postnr || ''} ${virksomhed.by || ''}`.trim() : ''
+    const refTekst = valgteReferencer.length > 0
+      ? valgteReferencer.map(r => {
+          const k = alleKrav.find(k => k.kravnummer === r)
+          return k ? `${k.standard} ${k.kravnummer}: ${k.titel}` : r
+        }).join('<br>')
+      : ''
 
     w.document.write(`<!DOCTYPE html><html><head><title>${titel}</title>
     <style>
       @page { margin: 20mm; size: A4; }
       * { box-sizing: border-box; }
       body { font-family: Arial, sans-serif; max-width: 100%; margin: 0; padding: 0; color: #111; font-size: 13px; }
-
       .doc-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111827; padding-bottom: 14px; margin-bottom: 20px; }
       .doc-header-left .company { font-size: 15px; font-weight: 700; color: #111827; margin-bottom: 2px; }
       .doc-header-left .address { font-size: 11px; color: #6b7280; }
       .doc-header-right { text-align: right; }
       .doc-header-right .doc-type { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
       .doc-header-right .doc-version { font-size: 12px; font-weight: 600; color: #374151; }
-
       h1.doc-title { font-size: 22px; font-weight: 700; margin: 0 0 20px 0; color: #111827; }
-
       .meta-bar { display: flex; gap: 20px; flex-wrap: wrap; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 14px; margin-bottom: 24px; font-size: 11px; color: #6b7280; }
       .meta-bar span strong { color: #374151; }
-
-      .doc-body h1 { font-size: 18px; font-weight: 700; margin-top: 24px; margin-bottom: 8px; color: #111827; }
+      .ref-boks { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 14px; margin-bottom: 24px; font-size: 11px; color: #166534; }
+      .ref-boks strong { display: block; margin-bottom: 4px; }
       .doc-body h2 { font-size: 14px; font-weight: 700; margin-top: 20px; margin-bottom: 6px; color: #111827; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
       .doc-body p { margin-bottom: 8px; line-height: 1.7; color: #374151; }
       .doc-body ul, .doc-body ol { padding-left: 20px; margin-bottom: 12px; }
       .doc-body li { margin-bottom: 4px; line-height: 1.6; color: #374151; }
       .doc-body strong, .doc-body b { font-weight: 700; }
-
       .doc-footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 10px; color: #9ca3af; }
     </style></head><body>
-
     <div class="doc-header">
       <div class="doc-header-left">
         ${vNavn ? `<div class="company">${vNavn}${vCvr}</div>` : '<div class="company">AiQMS</div>'}
@@ -269,9 +313,7 @@ function DokumentEditorInner() {
         ${meta.status ? `<div style="font-size:11px;color:#6b7280">${meta.status}</div>` : ''}
       </div>
     </div>
-
     <h1 class="doc-title">${titel}</h1>
-
     <div class="meta-bar">
       ${meta.ansvarlig ? `<span><strong>Ansvarlig:</strong> ${meta.ansvarlig}</span>` : ''}
       ${meta.godkendt_af ? `<span><strong>Godkendt af:</strong> ${meta.godkendt_af}</span>` : ''}
@@ -279,16 +321,14 @@ function DokumentEditorInner() {
       ${meta.gyldig_til ? `<span><strong>Gyldig til:</strong> ${new Date(meta.gyldig_til).toLocaleDateString('da-DK')}</span>` : ''}
       <span><strong>Sidst redigeret:</strong> ${new Date().toLocaleDateString('da-DK')}</span>
     </div>
-
+    ${refTekst ? `<div class="ref-boks"><strong>Standard referencer:</strong>${refTekst}</div>` : ''}
     <div class="doc-body">
       ${(editorRef.current?.innerHTML || indholdRef.current || indhold).replace(/<p[^>]*style="[^"]*border-bottom[^"]*"[^>]*>[\s\S]*?<\/p>/i, '').trim()}
     </div>
-
     <div class="doc-footer">
       <span>${vNavn || 'AiQMS'} · ${meta.type} · Version ${version}</span>
       <span>Udskrevet ${new Date().toLocaleDateString('da-DK')}</span>
     </div>
-
     </body></html>`)
     w.document.close()
     w.print()
@@ -299,6 +339,8 @@ function DokumentEditorInner() {
       <div className="text-sm text-gray-400">Indlæser...</div>
     </div>
   )
+
+  const standarder = [...new Set(alleKrav.map(k => k.standard))]
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -381,7 +423,7 @@ function DokumentEditorInner() {
         </div>
 
         {/* SIDEBAR */}
-        <div className="w-64 bg-white border-l border-gray-100 p-4 overflow-y-auto flex-shrink-0">
+        <div className="w-72 bg-white border-l border-gray-100 p-4 overflow-y-auto flex-shrink-0">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Dokumentoplysninger</p>
 
           <div className="space-y-3">
@@ -441,6 +483,94 @@ function DokumentEditorInner() {
                 placeholder="Dokumentets formål..."
                 rows={3}
                 className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none" />
+            </div>
+
+            {/* ── STANDARD REFERENCER ── */}
+            <div className="pt-3 border-t border-gray-100">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-gray-600">Standard referencer</label>
+                <button
+                  onClick={() => setVisRefPanel(!visRefPanel)}
+                  className="text-xs px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 font-medium"
+                >
+                  + Tilknyt krav
+                </button>
+              </div>
+
+              {/* Valgte referencer */}
+              {valgteReferencer.length > 0 ? (
+                <div className="space-y-1 mb-2">
+                  {valgteReferencer.map(ref => {
+                    const krav = alleKrav.find(k => k.kravnummer === ref)
+                    return (
+                      <div key={ref} className="flex items-start justify-between gap-1 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1.5">
+                        <div className="flex-1 min-w-0">
+                          <span className="font-mono text-xs font-semibold text-emerald-700">{ref}</span>
+                          {krav && <p className="text-xs text-emerald-600 truncate">{krav.titel}</p>}
+                          {krav && <p className="text-xs text-emerald-500">{krav.standard}</p>}
+                        </div>
+                        <button onClick={() => fjernReference(ref)} className="text-emerald-400 hover:text-red-500 text-xs shrink-0 mt-0.5">✕</button>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 italic mb-2">Ingen krav tilknyttet endnu</p>
+              )}
+
+              {/* Søg og tilknyt panel */}
+              {visRefPanel && (
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  {/* Standard-vælger */}
+                  <div className="flex border-b border-gray-100 bg-gray-50">
+                    {standarder.map(std => (
+                      <button
+                        key={std}
+                        onClick={() => setValgtRefStandard(std)}
+                        className={`flex-1 text-xs py-1.5 font-medium transition-colors ${valgtRefStandard === std ? 'bg-white text-gray-900 border-b-2 border-emerald-500' : 'text-gray-400 hover:text-gray-600'}`}
+                      >
+                        {std.replace(' 22000', '')}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Søgefelt */}
+                  <div className="p-2 border-b border-gray-100">
+                    <input
+                      value={refSoeg}
+                      onChange={e => setRefSoeg(e.target.value)}
+                      placeholder="Søg kravnummer eller titel..."
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                    />
+                  </div>
+
+                  {/* Kravliste */}
+                  <div className="max-h-48 overflow-y-auto">
+                    {filtredeKrav.length === 0 ? (
+                      <p className="text-xs text-gray-400 p-3 text-center">Ingen krav fundet</p>
+                    ) : (
+                      filtredeKrav.map(k => {
+                        const erValgt = valgteReferencer.includes(k.kravnummer)
+                        return (
+                          <button
+                            key={k.id}
+                            onClick={() => erValgt ? fjernReference(k.kravnummer) : tilfoejReference(k.kravnummer)}
+                            className={`w-full text-left px-3 py-2 border-b border-gray-50 hover:bg-gray-50 transition-colors ${erValgt ? 'bg-emerald-50' : ''}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <span className="font-mono text-xs font-semibold text-gray-600">{k.kravnummer}</span>
+                                <p className="text-xs text-gray-700 truncate">{k.titel}</p>
+                              </div>
+                              {erValgt && <span className="text-emerald-500 text-xs shrink-0">✓</span>}
+                            </div>
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="pt-3 border-t border-gray-100">
